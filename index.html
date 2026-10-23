@@ -49,6 +49,22 @@ canvas{display:block}
 #panel input[type=email],#panel input[type=password]{width:210px}
 #panel button.link{background:none;border:none;color:#2de0ff;padding:2px 6px;font-size:14px;font-weight:normal;text-decoration:underline}
 #panel button:disabled{opacity:.4}
+#panel .menu{position:absolute;top:8px;right:8px;z-index:2}
+#panel .burger{padding:4px 12px;font-size:22px;line-height:1;background:#0a0a2a}
+#panel .menu-list{position:absolute;top:46px;right:0;background:#0a0a2a;border:2px solid #2a3cff;border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:180px}
+#panel .menu-list[hidden]{display:none}
+#panel .menu-list button{background:none;border:none;text-align:right;font-size:15px;padding:8px 10px;font-weight:normal;white-space:nowrap}
+#panel .menu-list button:active{background:#2a3cff}
+#panel #admPin{width:130px;font-size:24px;letter-spacing:10px}
+#panel .levels{display:flex;gap:6px}
+#panel .lvl{width:58px;height:68px;padding:4px 0;border-radius:12px;border:2px solid var(--c);background:#0a0a2a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative;font-weight:normal}
+#panel .lvl b{font-size:22px;color:var(--c)}
+#panel .lvl span{font-size:11px}
+#panel .lvl i{position:absolute;top:-9px;left:-6px;font-style:normal;font-size:15px}
+#panel .lvl:disabled{opacity:.35}
+#panel .actions{display:flex;gap:8px}
+#panel button.secondary{background:#0a0a2a}
+#panel .help{max-width:270px;font-size:14px;line-height:1.7;text-align:center;color:#ddd}
 #board h2{margin:0 0 6px;font-size:16px;color:#2de0ff;text-align:center}
 #board ol{margin:0;padding:0;list-style:none}
 #board li{display:flex;gap:8px;padding:3px 8px;border-radius:6px}
@@ -67,28 +83,129 @@ canvas{display:block}
 (() => {
 'use strict';
 
-const MAP = [
-  "###################",
-  "#........#........#",
-  "#o##.###.#.###.##o#",
-  "#.................#",
-  "#.##.#.#####.#.##.#",
-  "#....#...#...#....#",
-  "####.### # ###.####",
-  "   #.#       #.#   ",
-  "####.# ##-## #.####",
-  "    .  #   #  .    ",
-  "####.# ##### #.####",
-  "   #.#       #.#   ",
-  "####.# ##### #.####",
-  "#........#........#",
-  "#.##.###.#.###.##.#",
-  "#o.#.....P.....#.o#",
-  "##.#.#.#####.#.#.##",
-  "#....#...#...#....#",
-  "#.######.#.######.#",
-  "#.................#",
-  "###################"
+// Five levels. Clearing one unlocks the next in the lobby; later levels are faster and worth more.
+// dark: only the area around the player is visible. chase: ghosts never fall back to their corners.
+const LEVELS = [
+  {name: 'קלאסי', icon: '🟦', color: '#2a3cff', pac: 7.0, ghost: 6.0, fright: 7, mult: 1,
+  map: [
+    "###################",
+    "#........#........#",
+    "#o##.###.#.###.##o#",
+    "#.................#",
+    "#.##.#.#####.#.##.#",
+    "#....#...#...#....#",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#........#........#",
+    "#.##.###.#.###.##.#",
+    "#o.#.....P.....#.o#",
+    "##.#.#.#####.#.#.##",
+    "#....#...#...#....#",
+    "#.######.#.######.#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'יער', icon: '🌲', color: '#1fbf5a', pac: 7.2, ghost: 6.5, fright: 6, mult: 2,
+  map: [
+    "###################",
+    "#.................#",
+    "#o##.##.#.#.##.##o#",
+    "#....#.......#....#",
+    "#..#.#.##.##.#.#..#",
+    "#..#...#...#...#..#",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#....#.......#....#",
+    "#.##.#.##.##.#.##.#",
+    "#o.......P.......o#",
+    "###.#.##.#.##.#.###",
+    "#...#....#....#...#",
+    "#.###.##.#.##.###.#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'לילה', icon: '🌙', color: '#9b4dff', pac: 7.4, ghost: 6.8, fright: 5, mult: 3, dark: true,
+  map: [
+    "###################",
+    "#....#.......#....#",
+    "#.##.#.##.##.#.##.#",
+    "#o...............o#",
+    "#.#.#.#.#.#.#.#.#.#",
+    "#.....#.....#.....#",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "####.  #   #  .####",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#.................#",
+    "#.#.###.###.###.#.#",
+    "#o#......P......#o#",
+    "#...#.#.###.#.#...#",
+    "###.#.#..#..#.#.###",
+    "#...#.##.#.##.#...#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'אש', icon: '🔥', color: '#ff4a2a', pac: 7.6, ghost: 7.2, fright: 4, mult: 4,
+  map: [
+    "###################",
+    "#.................#",
+    "#.#.##.##.##.##.#.#",
+    "#o#....#...#....#o#",
+    "#...##...#...##...#",
+    "###....#...#....###",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#........#........#",
+    "#.###.##.#.##.###.#",
+    "#o..#....P....#..o#",
+    "##..#.##.#.##.#..##",
+    "#........#........#",
+    "#.##.##..#..##.##.#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'בוס', icon: '👑', color: '#ffc21a', pac: 7.8, ghost: 7.5, fright: 3, mult: 5, chase: true,
+  map: [
+    "###################",
+    "#o...............o#",
+    "#.#.###.###.###.#.#",
+    "#.#......#......#.#",
+    "#...#.#.....#.#...#",
+    "###...#..#..#...###",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#.................#",
+    "#.#.#.#######.#.#.#",
+    "#o#.#....P....#.#o#",
+    "#...#.#.###.#.#...#",
+    "#.###.#..#..#.###.#",
+    "#.....##.#.##.....#",
+    "#.................#",
+    "###################"
+  ]}
 ];
 const W = 19, H = 21;
 const U = {x:0,y:-1}, D = {x:0,y:1}, L = {x:-1,y:0}, R = {x:1,y:0};
@@ -101,7 +218,8 @@ const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 let cell = 20, wallLayer = null;
 let pellets, pelletsLeft = 0;
 let pac, ghosts = [];
-let score = 0, hi = +safeGet('chomper-hi') || 0, lives = 3, level = 1;
+let score = 0, hi = +safeGet('chomper-hi') || 0, lives = 3;
+let levelIdx = 0, LV = LEVELS[0], MAP = LV.map;
 let state = 'title', stateT = 0, modeT = 0, frightT = 0, combo = 0;
 
 // ---------- map helpers ----------
@@ -125,7 +243,13 @@ function bfs(sx, sy) {
   }
   return d;
 }
-const eyeDist = bfs(9, 9);
+let eyeDist = bfs(9, 9);
+function loadLevel(i) {
+  levelIdx = i; LV = LEVELS[i]; MAP = LV.map;
+  eyeDist = bfs(9, 9);
+  fit();
+}
+const progress = () => +safeGet('pac-progress') || 0;  // number of levels cleared
 
 // ---------- movement ----------
 const isInt = v => Math.abs(v - Math.round(v)) < 1e-6;
@@ -157,12 +281,13 @@ function mkGhost(name, color, x, y, wait, corner) {
           eyes: false, fright: false, wait, corner, reverse: false};
 }
 function resetActors() {
-  pac = {x: 9, y: 15, dir: null, want: null, face: R, speed: 7, anim: 0};
+  pac = {x: 9, y: 15, dir: null, want: null, face: R, speed: LV.pac, anim: 0};
+  const w = LV.chase ? 0.5 : 1;
   ghosts = [
     mkGhost('blinky', '#ff2d2d', 9, 7, 0,   {x: 17, y: 0}),
-    mkGhost('pinky',  '#ff8de0', 9, 9, 1.5, {x: 1,  y: 0}),
-    mkGhost('inky',   '#2de0ff', 8, 9, 4,   {x: 17, y: 20}),
-    mkGhost('clyde',  '#ffa42d', 10, 9, 7,  {x: 1,  y: 20})
+    mkGhost('pinky',  '#ff8de0', 9, 9, 1.5 * w, {x: 1,  y: 0}),
+    mkGhost('inky',   '#2de0ff', 8, 9, 4 * w,   {x: 17, y: 20}),
+    mkGhost('clyde',  '#ffa42d', 10, 9, 7 * w,  {x: 1,  y: 20})
   ];
 }
 
@@ -178,17 +303,17 @@ function updatePac(dt) {
   const tx = Math.round(p.x), ty = Math.round(p.y);
   const c = pellets[ty] && pellets[ty][tx];
   if (c === '.') {
-    pellets[ty][tx] = ' '; pelletsLeft--; addScore(10);
+    pellets[ty][tx] = ' '; pelletsLeft--; addScore(10 * LV.mult);
   } else if (c === 'o') {
-    pellets[ty][tx] = ' '; pelletsLeft--; addScore(50);
-    frightT = Math.max(3, 8 - level); combo = 0;
+    pellets[ty][tx] = ' '; pelletsLeft--; addScore(50 * LV.mult);
+    frightT = LV.fright; combo = 0;
     for (const g of ghosts) if (!g.eyes) { g.fright = true; if (!g.inHouse) g.reverse = true; }
   }
 }
 
 function ghostTarget(g) {
   if (g.inHouse) return {x: 9, y: 7};
-  if ((modeT % 27) < 7) return g.corner;
+  if (!LV.chase && (modeT % 27) < 7) return g.corner;
   const px = Math.round(pac.x), py = Math.round(pac.y), f = pac.face;
   switch (g.name) {
     case 'blinky': return {x: px, y: py};
@@ -239,7 +364,7 @@ function ghostChoose(g) {
 }
 function updateGhost(g, dt) {
   if (g.wait > 0) { g.wait -= dt; return; }
-  g.speed = g.eyes ? 14 : g.fright ? 4 : Math.min(7.2, 6 + level * 0.25);
+  g.speed = g.eyes ? 14 : g.fright ? 4 : LV.ghost;
   step(g, dt, ghostChoose);
 }
 
@@ -257,10 +382,11 @@ function updateHud() {
 function setState(s) {
   state = s; stateT = 0;
   const m = $('msg');
-  m.innerHTML = {ready: 'READY!', win: 'LEVEL CLEAR!'}[s] || '';
-  if (s === 'over') safeSet('chomper-hi', hi);
-  $('panel').hidden = !(s === 'title' || s === 'over');
-  if (s === 'title' || s === 'over') showPanel(s);
+  m.innerHTML = {ready: `READY!<small>${LV.icon} שלב ${levelIdx + 1}: ${LV.name}</small>`, win: 'LEVEL CLEAR!'}[s] || '';
+  if (s === 'over' || s === 'cleared') safeSet('chomper-hi', hi);
+  const panel = s === 'title' || s === 'over' || s === 'cleared';
+  $('panel').hidden = !panel;
+  if (panel) showPanel(s);
 }
 function newLevel() {
   pellets = MAP.map(r => [...r].map(c => (c === '.' || c === 'o') ? c : ' '));
@@ -268,13 +394,15 @@ function newLevel() {
   resetActors(); modeT = 0; frightT = 0;
   setState('ready');
 }
-function newGame() {
-  score = 0; lives = 3; level = 1;
-  updateHud(); newLevel();
+function newGame(i) {
+  if (LB_ON && !playerName) return;
+  score = 0; lives = 3;
+  loadLevel(i); updateHud(); newLevel();
 }
 function startIfNeeded() {
-  if (LB_ON && !playerName) return;
-  if (state === 'title' || state === 'over') newGame();
+  if (state === 'title') newGame(Math.min(progress(), LEVELS.length - 1));
+  else if (state === 'over') newGame(levelIdx);
+  else if (state === 'cleared' && levelIdx < LEVELS.length - 1) newGame(levelIdx + 1);
 }
 
 function update(dt) {
@@ -287,7 +415,13 @@ function update(dt) {
     }
     return;
   }
-  if (state === 'win') { if (stateT > 1.5) { level++; newLevel(); } return; }
+  if (state === 'win') {
+    if (stateT > 1.5) {
+      if (progress() < levelIdx + 1) safeSet('pac-progress', levelIdx + 1);
+      setState('cleared');
+    }
+    return;
+  }
   if (state !== 'play') return;
 
   modeT += dt;
@@ -305,7 +439,7 @@ function update(dt) {
     if (dx * dx + dy * dy < 0.45) {
       if (g.fright) {
         g.eyes = true; g.fright = false;
-        addScore(200 * Math.pow(2, Math.min(combo++, 3)));
+        addScore(200 * LV.mult * Math.pow(2, Math.min(combo++, 3)));
       } else {
         setState('dying');
         try { navigator.vibrate && navigator.vibrate(150); } catch (e) {}
@@ -465,49 +599,83 @@ function nameForm() {
   });
   return f;
 }
-// Admin login is hidden: tap the title five times.
-let taps = [];
-function secretTap() {
-  const now = Date.now();
-  taps = taps.filter(t => now - t < 2000).concat(now);
-  if (taps.length >= 5) { taps = []; showAdminLogin(); }
-}
+// The admin enters a PIN; the matching Firebase account's password is derived from it, so the PIN never sits in the code.
+const ADMIN_EMAIL = 'admin@dpackman.app';
 function showAdminLogin() {
   const p = $('panel');
   p.innerHTML = '';
-  p.append(el('h1', {textContent: 'כניסת מנהל'}));
+  p.append(el('h1', {textContent: '🛡️ מצב מנהל'}));
   const f = p.appendChild(el('form', {className: 'nameform', innerHTML:
-    '<input id="admEmail" type="email" placeholder="אימייל" autocomplete="username" dir="ltr">' +
-    '<input id="admPass" type="password" placeholder="סיסמה" autocomplete="current-password" dir="ltr">' +
+    '<input id="admPin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off" dir="ltr">' +
     '<button>כניסה</button><div class="err" id="admErr"></div>'}));
   f.addEventListener('submit', e => {
     e.preventDefault();
-    $('admErr').textContent = 'מתחבר...';
-    adminLogin($('admEmail').value.trim(), $('admPass').value).then(() => showPanel(state))
-      .catch(() => { $('admErr').textContent = 'אימייל או סיסמה שגויים'; });
+    $('admErr').textContent = 'בודק...';
+    adminLogin(ADMIN_EMAIL, 'pacman-' + $('admPin').value).then(() => showPanel(state)).catch(err => {
+      $('admErr').textContent = /TOO_MANY/.test(err.message) ? 'יותר מדי ניסיונות, נסה שוב מאוחר יותר' : 'סיסמה שגויה';
+    });
   });
   p.append(el('button', {className: 'link', textContent: 'ביטול', onclick: () => showPanel(state)}));
+  $('admPin').focus();
+}
+function showHelp() {
+  const p = $('panel');
+  p.innerHTML = '';
+  p.append(el('h1', {textContent: 'איך משחקים'}),
+    el('div', {className: 'help', innerHTML: 'אוכלים את כל הנקודות ובורחים מהרוחות.<br>' +
+      'כדור גדול הופך את הרוחות לכחולות, ואז אפשר לאכול אותן.<br>' +
+      'מסיימים שלב, ונפתח השלב הבא בלובי. כל שלב קשה יותר ושווה יותר נקודות.<br>' +
+      'שליטה: ג׳ויסטיק, החלקה על המסך או החצים במקלדת.'}),
+    el('button', {textContent: 'חזרה', onclick: () => showPanel(state)}));
+}
+function menu() {
+  const wrap = el('div', {className: 'menu'});
+  const list = el('div', {className: 'menu-list', hidden: true});
+  wrap.append(el('button', {className: 'burger', textContent: '☰', title: 'תפריט', onclick: () => { list.hidden = !list.hidden; }}), list);
+  const item = (text, fn) => list.append(el('button', {textContent: text, onclick: () => { list.hidden = true; fn(); }}));
+  if (LB_ON) {
+    if (isAdmin()) item('🚪 יציאה ממצב מנהל', () => { safeSet(ADMIN, ''); showPanel(state); });
+    else item('🛡️ מצב מנהל', showAdminLogin);
+  }
+  item('❓ איך משחקים', showHelp);
+  return wrap;
+}
+function levelGrid(enabled) {
+  const g = el('div', {className: 'levels'}), done = progress();
+  LEVELS.forEach((lv, i) => {
+    const locked = i > Math.min(done, LEVELS.length - 1);
+    const b = g.appendChild(el('button', {className: 'lvl', disabled: !enabled || locked, onclick: () => newGame(i)}));
+    b.style.setProperty('--c', lv.color);
+    b.append(el('b', {textContent: locked ? '🔒' : i + 1}), el('span', {textContent: lv.name}));
+    if (i < done) b.append(el('i', {textContent: '⭐'}));
+  });
+  return g;
 }
 function showPanel(kind) {
   const p = $('panel');
   p.innerHTML = '';
-  const title = p.appendChild(el('h1', {textContent: kind === 'title' ? 'פאקמן' : 'GAME OVER'}));
-  if (kind === 'over') p.append(el('div', {className: 'final', innerHTML: `ניקוד: <b>${score}</b>`}));
-  const go = el('button', {id: 'go', textContent: kind === 'title' ? 'התחל' : 'שחק שוב', onclick: startIfNeeded});
+  p.append(menu());
+  const last = levelIdx === LEVELS.length - 1;
+  p.append(el('h1', {textContent: {title: 'פאקמן', over: 'GAME OVER',
+    cleared: last ? 'ניצחת את כל השלבים! 🏆' : `שלב ${levelIdx + 1} הושלם! 🎉`}[kind]}));
+  if (kind !== 'title') p.append(el('div', {className: 'final', innerHTML: `${LV.icon} ${LV.name} · ניקוד: <b>${score}</b>`}));
   if (LB_ON) {
-    if (kind === 'title') title.addEventListener('click', secretTap);
-    if (playerName) p.append(el('div', {className: 'who', textContent: `משחק בתור: ${playerName}`}));
-    else { p.append(nameForm()); go.disabled = true; }
-    if (isAdmin()) {
-      const bar = p.appendChild(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל'}));
-      bar.append(el('button', {className: 'link', textContent: 'יציאה', onclick: () => { safeSet(ADMIN, ''); showPanel(kind); }}));
-    }
-    p.append(el('div', {id: 'board'}));
+    p.append(playerName ? el('div', {className: 'who', textContent: `משחק בתור: ${playerName}`}) : nameForm());
+    if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: אפשר למחוק תוצאות'}));
   }
-  p.append(go);
+  const ready = !LB_ON || !!playerName;
+  if (kind === 'title') {
+    p.append(levelGrid(ready));
+  } else {
+    const row = p.appendChild(el('div', {className: 'actions'}));
+    if (kind === 'over') row.append(el('button', {id: 'go', textContent: 'נסה שוב', disabled: !ready, onclick: () => newGame(levelIdx)}));
+    if (kind === 'cleared' && !last) row.append(el('button', {id: 'go', textContent: 'לשלב הבא ▶', disabled: !ready, onclick: () => newGame(levelIdx + 1)}));
+    row.append(el('button', {className: 'secondary', textContent: 'ללובי', onclick: () => setState('title')}));
+  }
   if (!LB_ON) return;
-  if (kind === 'over') submitScore().catch(() => {}).then(loadBoard);
-  else loadBoard();
+  p.append(el('div', {id: 'board'}));
+  if (kind === 'title') loadBoard();
+  else submitScore().catch(() => {}).then(loadBoard);
 }
 
 // ---------- rendering ----------
@@ -516,8 +684,8 @@ function buildWalls(dpr) {
   wallLayer.width = cv.width; wallLayer.height = cv.height;
   const g = wallLayer.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.strokeStyle = '#2a3cff'; g.lineWidth = Math.max(2, cell / 8); g.lineCap = 'round';
-  g.shadowColor = '#2a3cff'; g.shadowBlur = cell / 3;
+  g.strokeStyle = LV.color; g.lineWidth = Math.max(2, cell / 8); g.lineCap = 'round';
+  g.shadowColor = LV.color; g.shadowBlur = cell / 3;
   const isW = (x, y) => x >= 0 && x < W && y >= 0 && y < H && MAP[y][x] === '#';
   g.beginPath();
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -594,6 +762,12 @@ function draw(t) {
   if (!pac) return;
   if (state !== 'dying') for (const g of ghosts) drawGhost(g, t);
   drawPac();
+  if (LV.dark && state !== 'title') {
+    const cx = (pac.x + .5) * cell, cy = (pac.y + .5) * cell;
+    const g = ctx.createRadialGradient(cx, cy, cell * 2.5, cx, cy, cell * 5.5);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.96)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W * cell, H * cell);
+  }
 }
 
 // ---------- input ----------
