@@ -19,6 +19,13 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+      - name: Check leaderboard database (read only)
+        run: |
+          url=$(grep -oP "^const LB_URL = '\K[^']*" index.html)
+          if [ -n "$url" ]; then
+            res=$(curl -sS -w ' (HTTP %{http_code})' "$url/scores.json?orderBy=%22score%22&limitToLast=10")
+            echo "::notice title=Leaderboard check::$res"
+          fi
       - run: npm ci
       - run: npm run build && npx cap sync android
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
