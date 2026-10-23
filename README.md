@@ -22,14 +22,14 @@
 
 או `npm run android:open` ואז Run מתוך Android Studio.
 
-## טבלת שיאים (Firebase Realtime Database)
-הטבלה כבויה עד שממלאים את `LB_URL` ב-`index.html`. הגדרה חד-פעמית:
-1. https://console.firebase.google.com > פרויקט > Build > Realtime Database > Create database.
-2. בלשונית Rules מדביקים את התוכן של `database.rules.json` ולוחצים Publish.
-3. בלשונית Data מעתיקים את הכתובת שמופיעה למעלה (`https://...firebasedatabase.app`) לתוך `LB_URL`.
+## טבלת שיאים (Firebase Realtime Database + Authentication)
+- כל שחקן מתחבר אוטומטית בחשבון אנונימי, ולא יכול לשחק בלי לבחור שם.
+- השם ייחודי (אין שני "דניאל") וקבוע. אי אפשר לשנות אותו אחר כך.
+- כל שחקן יכול רק להעלות את הניקוד של עצמו. אי אפשר לגעת בניקוד של אחרים.
+- רק המנהל מוחק תוצאות: מקישים 5 פעמים על הכותרת "פאקמן" ומתחברים עם אימייל וסיסמה.
 
-ההגנה היא החוקים: אפשר רק להוסיף שחקן או להעלות לו ניקוד, לא למחוק ולא להוריד.
-מי שמבין בקוד יכול לשלוח ניקוד מזויף. לטבלה בין חברים זה מספיק.
+הגדרה: ב-`index.html` ממלאים את `LB.db` ואת `LB.apiKey`, וב-`database.rules.json`
+מחליפים את `ADMIN_UID` ב-User UID של המנהל ומדביקים את הקובץ בלשונית Rules של Realtime Database.
 
 ## העלאה לגוגל פליי
 ה-APK של debug טוב להתקנה ישירה, לא לחנות. בשביל החנות:

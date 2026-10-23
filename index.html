@@ -22,11 +22,13 @@ body{position:fixed;inset:0;overscroll-behavior:none;display:flex;flex-direction
 canvas{display:block}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:26px;font-weight:bold;color:#ffdd00;text-shadow:0 0 8px #000,0 0 4px #000;pointer-events:none;white-space:pre-line}
 #msg small{display:block;margin-top:10px;font-size:13px;color:#fff;font-weight:normal}
-#dpad{display:none;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:14px;margin:8px 0}
-#dpad button{border:2px solid #2a3cff;background:#0a0a2a;color:#fff;font-size:22px;border-radius:50%;touch-action:none}
-#dpad button:active{background:#2a3cff}
-.up{grid-column:2;grid-row:1}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
-@media (pointer:coarse){#dpad{display:grid}}
+#joy{display:none;position:relative;width:136px;height:136px;margin:10px 0;border-radius:50%;border:2px solid #2a3cff;background:radial-gradient(circle,#0a0a2a 55%,#13145a);touch-action:none}
+#joy .hint{position:absolute;color:#2a3cff;font-size:14px;line-height:1;pointer-events:none}
+#joy .u{top:8px;left:50%;transform:translateX(-50%)}#joy .d{bottom:8px;left:50%;transform:translateX(-50%)}
+#joy .l{left:9px;top:50%;transform:translateY(-50%)}#joy .r{right:9px;top:50%;transform:translateY(-50%)}
+#knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6b7bff,#2a3cff);box-shadow:0 0 14px #2a3cff;transition:transform .12s;pointer-events:none}
+#joy.active #knob{transition:none}
+@media (pointer:coarse){#joy{display:block}}
 #panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.82);direction:rtl;overflow-y:auto;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
 #panel[hidden]{display:none}
 #panel h1{margin:0;color:#ffdd00;font-size:34px;letter-spacing:2px}
@@ -36,7 +38,17 @@ canvas{display:block}
 #panel input{width:150px;padding:8px;border-radius:8px;border:2px solid #2a3cff;background:#0a0a2a;color:#fff;font-size:16px;text-align:center;user-select:text;-webkit-user-select:text}
 #panel button{padding:10px 26px;border-radius:10px;border:2px solid #2a3cff;background:#2a3cff;color:#fff;font-size:17px;font-weight:bold}
 #panel form button{padding:8px 14px;font-size:15px}
-#board{width:min(260px,92%);font-size:15px}
+#board{width:min(270px,92%);font-size:15px;max-height:45%;overflow-y:auto}
+#board .del{background:none;border:none;padding:0 4px;font-size:15px}
+#panel .nameform{flex-direction:column;align-items:center}
+#panel .row{display:flex;gap:6px}
+#panel .hint{font-size:12px;color:#bbb;max-width:240px;text-align:center}
+#panel .err{font-size:13px;color:#ff6b6b;min-height:1em}
+#panel .who{font-size:14px;color:#ccc}
+#panel .admin{font-size:13px;color:#2de0ff;display:flex;align-items:center;gap:6px}
+#panel input[type=email],#panel input[type=password]{width:210px}
+#panel button.link{background:none;border:none;color:#2de0ff;padding:2px 6px;font-size:14px;font-weight:normal;text-decoration:underline}
+#panel button:disabled{opacity:.4}
 #board h2{margin:0 0 6px;font-size:16px;color:#2de0ff;text-align:center}
 #board ol{margin:0;padding:0;list-style:none}
 #board li{display:flex;gap:8px;padding:3px 8px;border-radius:6px}
@@ -50,12 +62,7 @@ canvas{display:block}
 <body>
 <div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="lives"></span></div>
 <div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div></div>
-<div id="dpad">
-  <button class="up" data-d="U">▲</button>
-  <button class="left" data-d="L">◀</button>
-  <button class="down" data-d="D">▼</button>
-  <button class="right" data-d="R">▶</button>
-</div>
+<div id="joy"><span class="hint u">▲</span><span class="hint d">▼</span><span class="hint l">◀</span><span class="hint r">▶</span><div id="knob"></div></div>
 <script>
 (() => {
 'use strict';
@@ -85,7 +92,6 @@ const MAP = [
 ];
 const W = 19, H = 21;
 const U = {x:0,y:-1}, D = {x:0,y:1}, L = {x:-1,y:0}, R = {x:1,y:0};
-const DIRS = {U, D, L, R};
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -267,6 +273,7 @@ function newGame() {
   updateHud(); newLevel();
 }
 function startIfNeeded() {
+  if (LB_ON && !playerName) return;
   if (state === 'title' || state === 'over') newGame();
 }
 
@@ -308,67 +315,196 @@ function update(dt) {
   }
 }
 
-// ---------- leaderboard (Firebase Realtime Database over REST) ----------
-const LB_URL = 'https://packman-2cb6c-default-rtdb.europe-west1.firebasedatabase.app';
-const LB_ON = !!LB_URL;
+// ---------- leaderboard (Firebase Realtime Database + Auth over REST) ----------
+const LB = {
+  db: 'https://packman-2cb6c-default-rtdb.europe-west1.firebasedatabase.app',
+  apiKey: '',
+  authBase: 'https://identitytoolkit.googleapis.com',
+  tokenBase: 'https://securetoken.googleapis.com',
+  ns: ''  // only used with the local Firebase emulator
+};
+const LB_ON = !!(LB.db && LB.apiKey);
+const NAME_RE = /^[\p{L}\p{N} _-]{2,12}$/u;
+const PLAYER = 'pac-auth', ADMIN = 'pac-admin';
 let playerName = safeGet('pac-name') || '';
-let playerId = safeGet('pac-id');
-if (!playerId) {
-  playerId = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/-/g, '');
-  safeSet('pac-id', playerId);
+// A name saved by an older version was never registered on the server: offer it again.
+const legacyName = LB_ON && !safeGet(PLAYER) ? playerName : '';
+if (legacyName) playerName = '';
+
+// Sessions: players sign in anonymously, the admin with email and password.
+function loadSession(key) { try { return JSON.parse(safeGet(key) || 'null'); } catch (e) { return null; } }
+function saveSession(key, uid, idToken, refreshToken, expiresIn) {
+  const s = {uid, idToken, refreshToken, exp: Date.now() + (expiresIn - 60) * 1000};
+  safeSet(key, JSON.stringify(s));
+  return s;
+}
+async function postJson(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j.error && j.error.message) || 'HTTP ' + r.status);
+  return j;
+}
+async function session(key) {
+  let s = loadSession(key);
+  if (!s && key === PLAYER) {
+    const j = await postJson(`${LB.authBase}/v1/accounts:signUp?key=${LB.apiKey}`, {returnSecureToken: true});
+    s = saveSession(key, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
+  }
+  if (s && Date.now() > s.exp) {
+    const r = await fetch(`${LB.tokenBase}/v1/token?key=${LB.apiKey}`, {
+      method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(s.refreshToken)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 400) safeSet(key, '');  // account deleted or revoked
+      throw new Error('refresh failed');
+    }
+    s = saveSession(key, j.user_id, j.id_token, j.refresh_token, +j.expires_in);
+  }
+  return s;
+}
+async function db(method, path, body, s, params = {}) {
+  const q = new URLSearchParams(params);
+  if (s) q.set('auth', s.idToken);
+  if (LB.ns) q.set('ns', LB.ns);
+  const r = await fetch(`${LB.db}/${path}.json?${q}`, body === undefined ? {method}
+    : {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), {status: r.status});
+  return r.json();
 }
 
-async function submitScore() {
-  const best = +safeGet('pac-best-sent') || 0;
-  if (!LB_ON || !playerName || score <= best) return;
-  const r = await fetch(`${LB_URL}/scores/${playerId}.json`, {
-    method: 'PUT', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name: playerName, score})
-  });
-  if (r.ok) safeSet('pac-best-sent', score);
+// Names are unique and permanent: players/{uid}/name and names/{lowercase name} are written together, once.
+async function registerName(name) {
+  const s = await session(PLAYER);
+  const mine = await db('GET', `players/${s.uid}/name`);
+  if (!mine) {
+    const key = name.toLowerCase();
+    const owner = await db('GET', 'names/' + encodeURIComponent(key));
+    if (owner && owner !== s.uid) throw new Error('taken');
+    try {
+      await db('PATCH', '', {[`players/${s.uid}/name`]: name, [`names/${key}`]: s.uid}, s);
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) throw new Error('taken');
+      throw e;
+    }
+  }
+  playerName = mine || name;
+  safeSet('pac-name', playerName);
 }
-async function fetchTop() {
-  const r = await fetch(`${LB_URL}/scores.json?orderBy=%22score%22&limitToLast=10`);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return Object.entries((await r.json()) || {})
+function syncName() {
+  if (!LB_ON || !loadSession(PLAYER)) return;
+  const apply = name => {
+    if (name === playerName) return;
+    playerName = name; safeSet('pac-name', name);
+    if (state === 'title' || state === 'over') showPanel(state);
+  };
+  session(PLAYER).then(s => db('GET', `players/${s.uid}/name`)).then(n => apply(n || ''))
+    .catch(() => { if (!loadSession(PLAYER)) apply(''); });
+}
+async function submitScore() {
+  if (!LB_ON || !playerName || score <= 0) return;
+  const s = await session(PLAYER);
+  const best = await db('GET', `scores/${s.uid}/score`);
+  if (best >= score) return;
+  await db('PUT', `scores/${s.uid}`, {name: playerName, score}, s);
+}
+async function fetchTop(limit) {
+  const data = await db('GET', 'scores', undefined, null, {orderBy: '"score"', limitToLast: limit});
+  return Object.entries(data || {})
     .map(([id, v]) => ({id, name: String(v.name), score: +v.score}))
     .sort((a, b) => b.score - a.score);
 }
+const isAdmin = () => !!loadSession(ADMIN);
+async function adminLogin(email, password) {
+  const j = await postJson(`${LB.authBase}/v1/accounts:signInWithPassword?key=${LB.apiKey}`,
+    {email, password, returnSecureToken: true});
+  saveSession(ADMIN, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
+}
+async function adminDelete(id) {
+  await db('DELETE', `scores/${id}`, undefined, await session(ADMIN));
+}
+
 const el = (tag, props) => Object.assign(document.createElement(tag), props);
 function loadBoard() {
   const b = $('board');
   if (!b) return;
+  const admin = isAdmin(), me = (loadSession(PLAYER) || {}).uid;
   b.innerHTML = '<h2>🏆 טבלת שיאים</h2>';
   const body = b.appendChild(el('div', {className: 'muted', textContent: 'טוען...'}));
-  fetchTop().then(rows => {
+  fetchTop(admin ? 100 : 10).then(rows => {
     if (!rows.length) { body.textContent = 'עוד אין שיאים. תהיה הראשון!'; return; }
     const ol = el('ol');
     rows.forEach((row, i) => {
-      const li = ol.appendChild(el('li', {className: row.id === playerId ? 'me' : ''}));
+      const li = ol.appendChild(el('li', {className: row.id === me ? 'me' : ''}));
       li.append(el('span', {className: 'r', textContent: i + 1}),
                 el('span', {className: 'n', textContent: row.name}),
                 el('span', {textContent: row.score}));
+      if (admin) li.append(el('button', {className: 'del', textContent: '🗑', title: 'מחק', onclick: () => {
+        if (!confirm(`למחוק את התוצאה של ${row.name}?`)) return;
+        adminDelete(row.id).then(loadBoard).catch(e => alert('המחיקה נכשלה: ' + e.message));
+      }}));
     });
     body.replaceWith(ol);
   }).catch(() => { body.textContent = 'אין חיבור לטבלת השיאים'; });
 }
+function nameForm() {
+  const f = el('form', {className: 'nameform', innerHTML:
+    '<div class="row"><input id="nameIn" maxlength="12" placeholder="בחר שם" autocomplete="off"><button>שמור</button></div>' +
+    '<div class="hint">כדי לשחק צריך לבחור שם. אי אפשר לשנות אותו אחר כך.</div><div class="err" id="nameErr"></div>'});
+  f.querySelector('input').value = legacyName;
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const v = $('nameIn').value.trim().replace(/\s+/g, ' '), err = $('nameErr'), btn = f.querySelector('button');
+    if (!NAME_RE.test(v)) { err.textContent = 'שם של 2-12 אותיות או מספרים'; return; }
+    btn.disabled = true; err.textContent = 'שומר...';
+    registerName(v).then(() => showPanel(state)).catch(ex => {
+      btn.disabled = false;
+      err.textContent = ex.message === 'taken' ? 'השם הזה תפוס, נסה שם אחר' : 'אין חיבור לאינטרנט, נסה שוב';
+    });
+  });
+  return f;
+}
+// Admin login is hidden: tap the title five times.
+let taps = [];
+function secretTap() {
+  const now = Date.now();
+  taps = taps.filter(t => now - t < 2000).concat(now);
+  if (taps.length >= 5) { taps = []; showAdminLogin(); }
+}
+function showAdminLogin() {
+  const p = $('panel');
+  p.innerHTML = '';
+  p.append(el('h1', {textContent: 'כניסת מנהל'}));
+  const f = p.appendChild(el('form', {className: 'nameform', innerHTML:
+    '<input id="admEmail" type="email" placeholder="אימייל" autocomplete="username" dir="ltr">' +
+    '<input id="admPass" type="password" placeholder="סיסמה" autocomplete="current-password" dir="ltr">' +
+    '<button>כניסה</button><div class="err" id="admErr"></div>'}));
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    $('admErr').textContent = 'מתחבר...';
+    adminLogin($('admEmail').value.trim(), $('admPass').value).then(() => showPanel(state))
+      .catch(() => { $('admErr').textContent = 'אימייל או סיסמה שגויים'; });
+  });
+  p.append(el('button', {className: 'link', textContent: 'ביטול', onclick: () => showPanel(state)}));
+}
 function showPanel(kind) {
   const p = $('panel');
   p.innerHTML = '';
-  p.append(el('h1', {textContent: kind === 'title' ? 'פאקמן' : 'GAME OVER'}));
+  const title = p.appendChild(el('h1', {textContent: kind === 'title' ? 'פאקמן' : 'GAME OVER'}));
   if (kind === 'over') p.append(el('div', {className: 'final', innerHTML: `ניקוד: <b>${score}</b>`}));
-  if (LB_ON && !playerName) {
-    const f = p.appendChild(el('form', {innerHTML: '<input id="nameIn" maxlength="12" placeholder="השם שלך לטבלה" autocomplete="off"><button>שמור</button>'}));
-    f.addEventListener('submit', e => {
-      e.preventDefault();
-      const v = $('nameIn').value.trim();
-      if (!v) return;
-      playerName = v; safeSet('pac-name', v); f.remove();
-      if (state === 'over') submitScore().catch(() => {}).then(loadBoard);
-    });
+  const go = el('button', {id: 'go', textContent: kind === 'title' ? 'התחל' : 'שחק שוב', onclick: startIfNeeded});
+  if (LB_ON) {
+    if (kind === 'title') title.addEventListener('click', secretTap);
+    if (playerName) p.append(el('div', {className: 'who', textContent: `משחק בתור: ${playerName}`}));
+    else { p.append(nameForm()); go.disabled = true; }
+    if (isAdmin()) {
+      const bar = p.appendChild(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל'}));
+      bar.append(el('button', {className: 'link', textContent: 'יציאה', onclick: () => { safeSet(ADMIN, ''); showPanel(kind); }}));
+    }
+    p.append(el('div', {id: 'board'}));
   }
-  if (LB_ON) p.append(el('div', {id: 'board'}));
-  p.append(el('button', {id: 'go', textContent: kind === 'title' ? 'התחל' : 'שחק שוב', onclick: newGame}));
+  p.append(go);
   if (!LB_ON) return;
   if (kind === 'over') submitScore().catch(() => {}).then(loadBoard);
   else loadBoard();
@@ -397,7 +533,7 @@ function buildWalls(dpr) {
   g.beginPath(); g.moveTo(9 * cell, 8.5 * cell); g.lineTo(10 * cell, 8.5 * cell); g.stroke();
 }
 function fit() {
-  const aw = innerWidth, ah = innerHeight - $('hud').offsetHeight - $('dpad').offsetHeight - 24;
+  const aw = innerWidth, ah = innerHeight - $('hud').offsetHeight - $('joy').offsetHeight - 32;
   cell = Math.max(8, Math.floor(Math.min(aw / W, ah / H)));
   const dpr = window.devicePixelRatio || 1;
   cv.style.width = W * cell + 'px'; cv.style.height = H * cell + 'px';
@@ -468,8 +604,29 @@ addEventListener('keydown', e => {
   if (KEYS[e.code]) { e.preventDefault(); setWant(KEYS[e.code]); }
   else if (e.code === 'Enter' || e.code === 'Space') startIfNeeded();
 });
-document.querySelectorAll('#dpad button').forEach(b =>
-  b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); setWant(DIRS[b.dataset.d]); }));
+const joy = $('joy'), knob = $('knob');
+let joyId = null, joyDir = null;
+function joyMove(e) {
+  const r = joy.getBoundingClientRect(), max = r.width / 2 - 22;
+  let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > max) { dx *= max / len; dy *= max / len; }
+  knob.style.transform = `translate(${dx}px,${dy}px)`;
+  if (len < max * 0.35) return;
+  const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? R : L) : (dy > 0 ? D : U);
+  if (d !== joyDir) { joyDir = d; setWant(d); try { navigator.vibrate && navigator.vibrate(8); } catch (err) {} }
+}
+joy.addEventListener('pointerdown', e => {
+  e.preventDefault(); e.stopPropagation();
+  joyId = e.pointerId; joy.setPointerCapture(e.pointerId); joy.classList.add('active'); joyMove(e);
+});
+joy.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyMove(e); });
+const joyEnd = e => {
+  if (e.pointerId !== joyId) return;
+  joyId = null; joyDir = null; joy.classList.remove('active'); knob.style.transform = '';
+};
+joy.addEventListener('pointerup', joyEnd);
+joy.addEventListener('pointercancel', joyEnd);
 let sx = 0, sy = 0, down = false;
 addEventListener('pointerdown', e => { down = true; sx = e.clientX; sy = e.clientY; });
 addEventListener('pointermove', e => {
@@ -492,7 +649,7 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 resetActors();
-updateHud(); fit(); setState('title');
+updateHud(); fit(); setState('title'); syncName();
 requestAnimationFrame(frame);
 window.__chomper = {get state() { return state; }, get score() { return score; }, newGame, setWant, U, D, L, R};
 
