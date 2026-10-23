@@ -304,10 +304,9 @@ function update(dt) {
   }
 }
 
-// ---------- leaderboard (Firebase Firestore over REST) ----------
-const LB = {projectId: '', apiKey: ''};
-const LB_ON = !!(LB.projectId && LB.apiKey);
-const LB_URL = `https://firestore.googleapis.com/v1/projects/${LB.projectId}/databases/(default)/documents`;
+// ---------- leaderboard (Firebase Realtime Database over REST) ----------
+const LB_URL = '';  // e.g. https://my-project-default-rtdb.europe-west1.firebasedatabase.app
+const LB_ON = !!LB_URL;
 let playerName = safeGet('pac-name') || '';
 let playerId = safeGet('pac-id');
 if (!playerId) {
@@ -318,24 +317,18 @@ if (!playerId) {
 async function submitScore() {
   const best = +safeGet('pac-best-sent') || 0;
   if (!LB_ON || !playerName || score <= best) return;
-  const r = await fetch(`${LB_URL}/scores/${playerId}?key=${LB.apiKey}&updateMask.fieldPaths=name&updateMask.fieldPaths=score`, {
-    method: 'PATCH', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({fields: {name: {stringValue: playerName}, score: {integerValue: String(score)}}})
+  const r = await fetch(`${LB_URL}/scores/${playerId}.json`, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: playerName, score})
   });
   if (r.ok) safeSet('pac-best-sent', score);
 }
 async function fetchTop() {
-  const r = await fetch(`${LB_URL}:runQuery?key=${LB.apiKey}`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({structuredQuery: {from: [{collectionId: 'scores'}],
-      orderBy: [{field: {fieldPath: 'score'}, direction: 'DESCENDING'}], limit: 10}})
-  });
+  const r = await fetch(`${LB_URL}/scores.json?orderBy=%22score%22&limitToLast=10`);
   if (!r.ok) throw new Error('HTTP ' + r.status);
-  return (await r.json()).filter(x => x.document).map(x => ({
-    id: x.document.name.split('/').pop(),
-    name: x.document.fields.name.stringValue,
-    score: +x.document.fields.score.integerValue
-  }));
+  return Object.entries((await r.json()) || {})
+    .map(([id, v]) => ({id, name: String(v.name), score: +v.score}))
+    .sort((a, b) => b.score - a.score);
 }
 const el = (tag, props) => Object.assign(document.createElement(tag), props);
 function loadBoard() {

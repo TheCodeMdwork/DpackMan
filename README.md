@@ -22,15 +22,13 @@
 
 או `npm run android:open` ואז Run מתוך Android Studio.
 
-## טבלת שיאים (Firebase)
-הטבלה כבויה עד שממלאים את `LB` ב-`index.html`. הגדרה חד-פעמית:
-1. https://console.firebase.google.com > Create project (אפשר לכבות Google Analytics).
-2. Build > Firestore Database > Create database > Production mode > מיקום `eur3`.
-3. בלשונית Rules מדביקים את התוכן של `firestore.rules` ולוחצים Publish.
-4. Project settings (גלגל השיניים) > General > Your apps > Web `</>` > רושמים אפליקציה.
-   מעתיקים את `projectId` ואת `apiKey` לתוך `const LB = {...}` ב-`index.html`.
+## טבלת שיאים (Firebase Realtime Database)
+הטבלה כבויה עד שממלאים את `LB_URL` ב-`index.html`. הגדרה חד-פעמית:
+1. https://console.firebase.google.com > פרויקט > Build > Realtime Database > Create database.
+2. בלשונית Rules מדביקים את התוכן של `database.rules.json` ולוחצים Publish.
+3. בלשונית Data מעתיקים את הכתובת שמופיעה למעלה (`https://...firebasedatabase.app`) לתוך `LB_URL`.
 
-ה-apiKey של Firebase לא סודי, ההגנה היא החוקים ב-`firestore.rules`.
+ההגנה היא החוקים: אפשר רק להוסיף שחקן או להעלות לו ניקוד, לא למחוק ולא להוריד.
 מי שמבין בקוד יכול לשלוח ניקוד מזויף. לטבלה בין חברים זה מספיק.
 
 ## העלאה לגוגל פליי
