@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Chomper</string>
-    <string name="title_activity_main">Chomper</string>
+    <string name="app_name">פאקמן</string>
+    <string name="title_activity_main">פאקמן</string>
     <string name="package_name">com.daniel.chomper</string>
     <string name="custom_url_scheme">com.daniel.chomper</string>
 </resources>

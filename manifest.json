@@ -1,6 +1,6 @@
 {
-  "name": "Chomper",
-  "short_name": "Chomper",
+  "name": "פאקמן",
+  "short_name": "פאקמן",
   "description": "Eat the dots, dodge the ghosts.",
   "start_url": ".",
   "scope": ".",

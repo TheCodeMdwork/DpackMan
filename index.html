@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="he">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>Chomper</title>
+<title>פאקמן</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="icon-192.png">
@@ -18,16 +18,34 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
 canvas{display:block}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:26px;font-weight:bold;color:#ffdd00;text-shadow:0 0 8px #000,0 0 4px #000;pointer-events:none;white-space:pre-line}
 #msg small{display:block;margin-top:10px;font-size:13px;color:#fff;font-weight:normal}
-#dpad{display:none;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:6px;margin:8px 0}
+#dpad{display:none;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:14px;margin:8px 0}
 #dpad button{border:2px solid #2a3cff;background:#0a0a2a;color:#fff;font-size:22px;border-radius:50%;touch-action:none}
 #dpad button:active{background:#2a3cff}
 .up{grid-column:2;grid-row:1}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
 @media (pointer:coarse){#dpad{display:grid}}
+#panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.82);direction:rtl;overflow-y:auto;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
+#panel[hidden]{display:none}
+#panel h1{margin:0;color:#ffdd00;font-size:34px;letter-spacing:2px}
+#panel .final{font-size:18px}
+#panel .final b{color:#ffdd00}
+#panel form{display:flex;gap:6px}
+#panel input{width:150px;padding:8px;border-radius:8px;border:2px solid #2a3cff;background:#0a0a2a;color:#fff;font-size:16px;text-align:center;user-select:text;-webkit-user-select:text}
+#panel button{padding:10px 26px;border-radius:10px;border:2px solid #2a3cff;background:#2a3cff;color:#fff;font-size:17px;font-weight:bold}
+#panel form button{padding:8px 14px;font-size:15px}
+#board{width:min(260px,92%);font-size:15px}
+#board h2{margin:0 0 6px;font-size:16px;color:#2de0ff;text-align:center}
+#board ol{margin:0;padding:0;list-style:none}
+#board li{display:flex;gap:8px;padding:3px 8px;border-radius:6px}
+#board li:nth-child(odd){background:rgba(42,60,255,.18)}
+#board li.me{background:#ffdd00;color:#000;font-weight:bold}
+#board .r{width:1.6em}
+#board .n{flex:1;unicode-bidi:plaintext;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#board .muted{text-align:center;color:#aaa;font-size:13px}
 </style>
 </head>
 <body>
 <div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="lives"></span></div>
-<div id="stage"><canvas id="c"></canvas><div id="msg"></div></div>
+<div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div></div>
 <div id="dpad">
   <button class="up" data-d="U">▲</button>
   <button class="left" data-d="L">◀</button>
@@ -229,13 +247,10 @@ function updateHud() {
 function setState(s) {
   state = s; stateT = 0;
   const m = $('msg');
-  m.innerHTML = {
-    title: 'CHOMPER<small>Tap or press a key to start</small>',
-    ready: 'READY!',
-    over:  'GAME OVER<small>Tap to play again</small>',
-    win:   'LEVEL CLEAR!'
-  }[s] || '';
+  m.innerHTML = {ready: 'READY!', win: 'LEVEL CLEAR!'}[s] || '';
   if (s === 'over') safeSet('chomper-hi', hi);
+  $('panel').hidden = !(s === 'title' || s === 'over');
+  if (s === 'title' || s === 'over') showPanel(s);
 }
 function newLevel() {
   pellets = MAP.map(r => [...r].map(c => (c === '.' || c === 'o') ? c : ' '));
@@ -287,6 +302,79 @@ function update(dt) {
       }
     }
   }
+}
+
+// ---------- leaderboard (Firebase Firestore over REST) ----------
+const LB = {projectId: '', apiKey: ''};
+const LB_ON = !!(LB.projectId && LB.apiKey);
+const LB_URL = `https://firestore.googleapis.com/v1/projects/${LB.projectId}/databases/(default)/documents`;
+let playerName = safeGet('pac-name') || '';
+let playerId = safeGet('pac-id');
+if (!playerId) {
+  playerId = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/-/g, '');
+  safeSet('pac-id', playerId);
+}
+
+async function submitScore() {
+  const best = +safeGet('pac-best-sent') || 0;
+  if (!LB_ON || !playerName || score <= best) return;
+  const r = await fetch(`${LB_URL}/scores/${playerId}?key=${LB.apiKey}&updateMask.fieldPaths=name&updateMask.fieldPaths=score`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({fields: {name: {stringValue: playerName}, score: {integerValue: String(score)}}})
+  });
+  if (r.ok) safeSet('pac-best-sent', score);
+}
+async function fetchTop() {
+  const r = await fetch(`${LB_URL}:runQuery?key=${LB.apiKey}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({structuredQuery: {from: [{collectionId: 'scores'}],
+      orderBy: [{field: {fieldPath: 'score'}, direction: 'DESCENDING'}], limit: 10}})
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return (await r.json()).filter(x => x.document).map(x => ({
+    id: x.document.name.split('/').pop(),
+    name: x.document.fields.name.stringValue,
+    score: +x.document.fields.score.integerValue
+  }));
+}
+const el = (tag, props) => Object.assign(document.createElement(tag), props);
+function loadBoard() {
+  const b = $('board');
+  if (!b) return;
+  b.innerHTML = '<h2>🏆 טבלת שיאים</h2>';
+  const body = b.appendChild(el('div', {className: 'muted', textContent: 'טוען...'}));
+  fetchTop().then(rows => {
+    if (!rows.length) { body.textContent = 'עוד אין שיאים. תהיה הראשון!'; return; }
+    const ol = el('ol');
+    rows.forEach((row, i) => {
+      const li = ol.appendChild(el('li', {className: row.id === playerId ? 'me' : ''}));
+      li.append(el('span', {className: 'r', textContent: i + 1}),
+                el('span', {className: 'n', textContent: row.name}),
+                el('span', {textContent: row.score}));
+    });
+    body.replaceWith(ol);
+  }).catch(() => { body.textContent = 'אין חיבור לטבלת השיאים'; });
+}
+function showPanel(kind) {
+  const p = $('panel');
+  p.innerHTML = '';
+  p.append(el('h1', {textContent: kind === 'title' ? 'פאקמן' : 'GAME OVER'}));
+  if (kind === 'over') p.append(el('div', {className: 'final', innerHTML: `ניקוד: <b>${score}</b>`}));
+  if (LB_ON && !playerName) {
+    const f = p.appendChild(el('form', {innerHTML: '<input id="nameIn" maxlength="12" placeholder="השם שלך לטבלה" autocomplete="off"><button>שמור</button>'}));
+    f.addEventListener('submit', e => {
+      e.preventDefault();
+      const v = $('nameIn').value.trim();
+      if (!v) return;
+      playerName = v; safeSet('pac-name', v); f.remove();
+      if (state === 'over') submitScore().catch(() => {}).then(loadBoard);
+    });
+  }
+  if (LB_ON) p.append(el('div', {id: 'board'}));
+  p.append(el('button', {id: 'go', textContent: kind === 'title' ? 'התחל' : 'שחק שוב', onclick: newGame}));
+  if (!LB_ON) return;
+  if (kind === 'over') submitScore().catch(() => {}).then(loadBoard);
+  else loadBoard();
 }
 
 // ---------- rendering ----------
@@ -376,15 +464,17 @@ function draw(t) {
 }
 
 // ---------- input ----------
-function setWant(d) { if (pac) pac.want = d; startIfNeeded(); }
+function setWant(d) { if (pac) pac.want = d; }
 const KEYS = {ArrowUp: U, KeyW: U, ArrowDown: D, KeyS: D, ArrowLeft: L, KeyA: L, ArrowRight: R, KeyD: R};
 addEventListener('keydown', e => {
-  if (KEYS[e.code]) { e.preventDefault(); setWant(KEYS[e.code]); } else startIfNeeded();
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+  if (KEYS[e.code]) { e.preventDefault(); setWant(KEYS[e.code]); }
+  else if (e.code === 'Enter' || e.code === 'Space') startIfNeeded();
 });
 document.querySelectorAll('#dpad button').forEach(b =>
   b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); setWant(DIRS[b.dataset.d]); }));
 let sx = 0, sy = 0, down = false;
-addEventListener('pointerdown', e => { down = true; sx = e.clientX; sy = e.clientY; startIfNeeded(); });
+addEventListener('pointerdown', e => { down = true; sx = e.clientX; sy = e.clientY; });
 addEventListener('pointermove', e => {
   if (!down) return;
   const dx = e.clientX - sx, dy = e.clientY - sy;
@@ -409,8 +499,13 @@ updateHud(); fit(); setState('title');
 requestAnimationFrame(frame);
 window.__chomper = {get state() { return state; }, get score() { return score; }, newGame, setWant, U, D, L, R};
 
-if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+if ('serviceWorker' in navigator) {
+  if (window.Capacitor) {
+    // Inside the Android app the files are local, so an offline cache only gets in the way of updates.
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+  } else if (/^https?:$/.test(location.protocol)) {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
 }
 })();
 </script>

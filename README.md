@@ -1,4 +1,4 @@
-# Chomper
+# פאקמן
 
 משחק קלאסי של אכילת נקודות. אתר (PWA) שעטוף כאפליקציית אנדרואיד עם Capacitor.
 פרויקט האנדרואיד כבר נוצר בתיקייה `android/`, כולל אייקונים.
@@ -22,6 +22,17 @@
 
 או `npm run android:open` ואז Run מתוך Android Studio.
 
+## טבלת שיאים (Firebase)
+הטבלה כבויה עד שממלאים את `LB` ב-`index.html`. הגדרה חד-פעמית:
+1. https://console.firebase.google.com > Create project (אפשר לכבות Google Analytics).
+2. Build > Firestore Database > Create database > Production mode > מיקום `eur3`.
+3. בלשונית Rules מדביקים את התוכן של `firestore.rules` ולוחצים Publish.
+4. Project settings (גלגל השיניים) > General > Your apps > Web `</>` > רושמים אפליקציה.
+   מעתיקים את `projectId` ואת `apiKey` לתוך `const LB = {...}` ב-`index.html`.
+
+ה-apiKey של Firebase לא סודי, ההגנה היא החוקים ב-`firestore.rules`.
+מי שמבין בקוד יכול לשלוח ניקוד מזויף. לטבלה בין חברים זה מספיק.
+
 ## העלאה לגוגל פליי
 ה-APK של debug טוב להתקנה ישירה, לא לחנות. בשביל החנות:
 Android Studio > Build > Generate Signed App Bundle > `.aab`.
@@ -29,4 +40,4 @@ Android Studio > Build > Generate Signed App Bundle > `.aab`.
 
 - חשבון מפתח בגוגל פליי עולה 25$ חד-פעמי, ודורש גיל 18+ (חשבון של הורה).
 - חשבון אישי חדש חייב Closed testing עם 12 בודקים ל-14 ימים רצופים לפני שאפשר לפרסם.
-- אל תקרא למשחק "Pac-Man" ואל תשתמש בדמויות המקוריות. זה סימן מסחרי של Bandai Namco והאפליקציה תיחסם.
+- השם "פאקמן" והדמויות הם סימן מסחרי של Bandai Namco. לשיתוף בין חברים זה בסדר, אבל לפני גוגל פליי חייבים לשנות שם, אחרת האפליקציה תיחסם.
