@@ -23,9 +23,23 @@ body{position:fixed;inset:0;overscroll-behavior:none;display:flex;flex-direction
 #stage{position:relative}
 canvas{display:block}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:26px;font-weight:bold;color:#ffdd00;text-shadow:0 0 8px #000,0 0 4px #000;pointer-events:none;white-space:pre-line}
-#msg .count{display:block;font-size:3.2em;animation:pop .9s ease-out}
+#msg .count{display:flex;align-items:center;justify-content:center;width:1.5em;height:1.5em;font-size:3em;border-radius:50%;background:rgba(0,0,24,.88);border:4px solid #ffdd00;box-shadow:0 0 30px rgba(255,221,0,.4);animation:pop .7s ease-out}
+#msg .round{direction:rtl;font-family:system-ui,sans-serif;background:rgba(0,0,24,.9);border:3px solid #ffdd00;border-radius:20px;padding:12px 30px 14px;box-shadow:0 0 30px rgba(255,221,0,.35);animation:pop .5s ease-out;line-height:1.15}
+#msg .round .lbl{font-size:.75em;color:#fff}
+#msg .round .num{font-size:2.6em;color:#ffdd00}
+#msg .round .of{font-size:.7em;color:#ddd}
+#msg .round .dots{font-size:.7em;letter-spacing:8px;color:#ffdd00;margin:4px 0 2px}
+#msg .round small{margin-top:6px;font-size:.5em}
 #msg .go{color:#7dff6b}
 @keyframes pop{from{transform:scale(1.9);opacity:0}30%{opacity:1}to{transform:scale(1);opacity:1}}
+#pauseBtn{display:none;position:absolute;top:6px;left:6px;z-index:3;width:40px;height:40px;padding:0;border-radius:10px;border:2px solid #2a3cff;background:rgba(10,10,42,.85);color:#fff;font-size:24px;font-weight:bold;line-height:1}
+body.ingame #pauseBtn{display:block}
+#pauseMenu{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.78);direction:rtl;font-family:system-ui,sans-serif}
+#pauseMenu[hidden]{display:none}
+#pauseMenu h2{margin:0 0 6px;color:#ffdd00;font-size:26px}
+#pauseMenu button{min-width:190px;padding:12px 24px;border-radius:12px;border:2px solid #2a3cff;background:#2a3cff;color:#fff;font-size:18px;font-weight:bold}
+#pauseMenu button.secondary{background:#0a0a2a}
+#pauseMenu .note{font-size:12px;color:#bbb}
 #msg small{display:block;margin-top:10px;font-size:13px;color:#fff;font-weight:normal}
 #joy{display:none;position:relative;width:136px;height:136px;margin:10px 0;border-radius:50%;border:2px solid #2a3cff;background:radial-gradient(circle,#0a0a2a 55%,#13145a);touch-action:none}
 #joy .hint{position:absolute;color:#2a3cff;font-size:14px;line-height:1;pointer-events:none}
@@ -105,7 +119,7 @@ canvas{display:block}
 </head>
 <body>
 <div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="timer"></span><span id="lives"></span></div>
-<div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div></div>
+<div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div><button id="pauseBtn" title="עצור">⋮</button><div id="pauseMenu" hidden><h2>⏸ המשחק עצור</h2><button id="resumeBtn">▶ המשך</button><button id="quitBtn" class="secondary">🚪 יציאה ללובי</button><div class="note">יציאה מבטלת את הניסיון והניקוד לא נשמר</div></div></div>
 <div id="joy"><span class="hint u">▲</span><span class="hint d">▼</span><span class="hint l">◀</span><span class="hint r">▶</span><div id="knob"></div></div>
 <script>
 (() => {
@@ -536,6 +550,8 @@ function updateHud() {
 }
 function setState(s) {
   state = s; stateT = 0;
+  document.body.classList.toggle('ingame', s === 'ready' || s === 'play' || s === 'dying' || s === 'win');
+  setPaused(false);
   const m = $('msg');
   phase = 0;
   m.innerHTML = {ready: roundTitle(), play: '<span class="count go">צא!</span>', win: 'LEVEL CLEAR!'}[s] || '';
@@ -545,7 +561,10 @@ function setState(s) {
   if (panel) showPanel(s);
   updateHud();
 }
-const roundTitle = () => `סיבוב ${4 - lives} מתוך 3<small>${LV.icon} שלב ${levelIdx + 1}: ${LV.name}${LV.hint ? '<br>' + LV.hint : ''}</small>`;
+const roundTitle = () => `<div class="round"><div class="lbl">סיבוב</div><div class="num">${4 - lives}</div><div class="of">מתוך 3</div>` +
+  `<div class="dots">${'●'.repeat(4 - lives)}${'○'.repeat(lives - 1)}</div>` +
+  `<small>${LV.icon} שלב ${levelIdx + 1}: ${LV.name}${LV.hint ? '<br>' + LV.hint : ''}</small></div>`;
+const ROUND_CARD = 1.6, COUNT_STEP = 0.8;  // seconds the round card shows, then each of 3-2-1
 function newLevel() {
   pellets = MAP.map(r => [...r].map(c => (c === '.' || c === 'o') ? c : ' '));
   pelletsLeft = pellets.flat().filter(c => c !== ' ').length;
@@ -564,11 +583,19 @@ function startIfNeeded() {
   else if (state === 'cleared' && levelIdx < LEVELS.length - 1) newGame(levelIdx + 1);
 }
 
+// The ⋮ button pauses the game; from there the player continues or leaves for the lobby
+// (the attempt is dropped and its score is not sent).
+let paused = false;
+function setPaused(on) {
+  paused = on && document.body.classList.contains('ingame');
+  $('pauseMenu').hidden = !paused;
+}
 function update(dt) {
+  if (paused) return;
   stateT += dt;
   if (state === 'ready') {
-    if (stateT >= 4) { setState('play'); return; }
-    const n = Math.floor(stateT);  // 0: round title, then 3, 2, 1
+    if (stateT >= ROUND_CARD + 3 * COUNT_STEP) { setState('play'); return; }
+    const n = stateT < ROUND_CARD ? 0 : 1 + Math.floor((stateT - ROUND_CARD) / COUNT_STEP);  // 0: round card, then 3, 2, 1
     if (n !== phase) { phase = n; $('msg').innerHTML = n ? `<span class="count">${4 - n}</span>` : roundTitle(); }
     return;
   }
@@ -1146,7 +1173,12 @@ function draw(t) {
 const MIRROR = new Map([[U, D], [D, U], [L, R], [R, L]]);
 function setWant(d) { if (pac) pac.want = LV.mirror ? MIRROR.get(d) : d; }
 const KEYS = {ArrowUp: U, KeyW: U, ArrowDown: D, KeyS: D, ArrowLeft: L, KeyA: L, ArrowRight: R, KeyD: R};
+$('pauseBtn').addEventListener('pointerdown', e => e.stopPropagation());
+$('pauseBtn').addEventListener('click', () => setPaused(true));
+$('resumeBtn').addEventListener('click', () => setPaused(false));
+$('quitBtn').addEventListener('click', () => setState('title'));
 addEventListener('keydown', e => {
+  if (e.code === 'Escape' && document.body.classList.contains('ingame')) { setPaused(!paused); return; }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
   if (KEYS[e.code]) { e.preventDefault(); setWant(KEYS[e.code]); }
   else if (e.code === 'Enter' || e.code === 'Space') startIfNeeded();
