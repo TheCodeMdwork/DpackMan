@@ -60,6 +60,11 @@ canvas{display:block}
 #panel .menu-list[hidden]{display:none}
 #panel .menu-list button{background:none;border:none;text-align:right;font-size:15px;padding:8px 10px;font-weight:normal;white-space:nowrap}
 #panel .menu-list button:active{background:#2a3cff}
+#panel .row{flex-wrap:wrap;justify-content:center}
+#panel #nameIn{width:140px}
+#panel #pinIn{width:120px;letter-spacing:4px}
+#panel #pinIn::placeholder{letter-spacing:0}
+#panel .secure-btn{background:#2a2000;border-color:#ffb800;color:#ffd75e;font-size:14px;padding:8px 14px;font-weight:normal}
 #panel #admPin{width:130px;font-size:24px;letter-spacing:10px}
 #panel .levels{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:320px}
 #panel .lvl{width:56px;height:60px;padding:4px 0;border-radius:12px;border:2px solid var(--c);background:#0a0a2a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative;font-weight:normal}
@@ -569,7 +574,7 @@ function update(dt) {
   }
   if (state === 'win') {
     if (stateT > 1.5) {
-      if (progress() < levelIdx + 1) safeSet('pac-progress', levelIdx + 1);
+      if (progress() < levelIdx + 1) saveProgress(levelIdx + 1);
       setState('cleared');
     }
     return;
@@ -616,14 +621,16 @@ const LB = {
   ns: ''  // only used with the local Firebase emulator
 };
 const LB_ON = !!(LB.db && LB.apiKey);
-const NAME_RE = /^[\p{L}\p{N} _-]{2,12}$/u;
+const NAME_RE = /^[\p{L}\p{N} _-]{2,12}$/u, PIN_RE = /^\d{4}$/;
 const PLAYER = 'pac-auth', ADMIN = 'pac-admin';
 let playerName = safeGet('pac-name') || '';
+let secured = safeGet('pac-secured') === '1';  // the account has a name + code login, so it survives a reinstall
+let acctMode = 'new';
 // A name saved by an older version was never registered on the server: offer it again.
 const legacyName = LB_ON && !safeGet(PLAYER) ? playerName : '';
 if (legacyName) playerName = '';
 
-// Sessions: players sign in anonymously, the admin with email and password.
+// Sessions: players sign in with their name and a 4-digit code (older players started out anonymous), the admin with email and password.
 function loadSession(key) { try { return JSON.parse(safeGet(key) || 'null'); } catch (e) { return null; } }
 function saveSession(key, uid, idToken, refreshToken, expiresIn) {
   const s = {uid, idToken, refreshToken, exp: Date.now() + (expiresIn - 60) * 1000};
@@ -666,33 +673,99 @@ async function db(method, path, body, s, params = {}) {
   return r.json();
 }
 
+// A player's login is an email/password account derived from their name and code, so the same
+// account (name, scores, progress) comes back on a new phone or after reinstalling.
+async function playerEmail(name) {
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name.toLowerCase()));
+  return 'p' + [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 40) + '@players.dpackman.app';
+}
+const playerPass = pin => 'dp-' + pin;
+const authUrl = op => `${LB.authBase}/v1/accounts:${op}?key=${LB.apiKey}`;
+function setPlayer(name, isSecured) {
+  playerName = name; safeSet('pac-name', name);
+  secured = isSecured; safeSet('pac-secured', isSecured ? '1' : '');
+}
+function authError(e) {
+  const m = e.message || '';
+  if (/EMAIL_EXISTS/.test(m)) return new Error('taken');
+  if (/TOO_MANY/.test(m)) return new Error('many');
+  if (/INVALID|EMAIL_NOT_FOUND|PASSWORD|USER_DISABLED/.test(m)) return new Error('wrong');
+  return e;
+}
 // Names are unique and permanent: players/{uid}/name and names/{lowercase name} are written together, once.
-async function registerName(name) {
-  const s = await session(PLAYER);
-  const mine = await db('GET', `players/${s.uid}/name`);
-  if (!mine) {
-    const key = name.toLowerCase();
-    const owner = await db('GET', 'names/' + encodeURIComponent(key));
-    if (owner && owner !== s.uid) throw new Error('taken');
-    try {
-      await db('PATCH', '', {[`players/${s.uid}/name`]: name, [`names/${key}`]: s.uid}, s);
-    } catch (e) {
-      if (e.status === 401 || e.status === 403) throw new Error('taken');
-      throw e;
-    }
+async function claimName(s, name) {
+  const key = name.toLowerCase();
+  const owner = await db('GET', 'names/' + encodeURIComponent(key));
+  if (owner && owner !== s.uid) throw new Error('taken');
+  try {
+    await db('PATCH', '', {[`players/${s.uid}/name`]: name, [`players/${s.uid}/secured`]: true, [`names/${key}`]: s.uid}, s);
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) throw new Error('taken');
+    throw e;
   }
-  playerName = mine || name;
-  safeSet('pac-name', playerName);
+  await takeReleased(s, name);
+}
+// A player the admin moved to a new device: their score and cleared levels wait under released/{name}.
+async function takeReleased(s, name) {
+  const path = 'released/' + encodeURIComponent(name.toLowerCase()), r = await db('GET', path);
+  if (!r) return;
+  if (r.score > 0) await db('PUT', `scores/${s.uid}`, {name, score: r.score}, s).catch(() => {});
+  if (r.progress > progress()) safeSet('pac-progress', r.progress);
+  await db('DELETE', path, undefined, s).catch(() => {});
+}
+async function registerName(name, pin) {
+  let s = loadSession(PLAYER) && await session(PLAYER);
+  const mine = s && await db('GET', `players/${s.uid}/name`);
+  if (mine) { setPlayer(mine, false); return securePlayer(pin); }
+  const owner = await db('GET', 'names/' + encodeURIComponent(name.toLowerCase()));
+  if (owner && (!s || owner !== s.uid)) throw new Error('taken');
+  // An anonymous session left by an older version is upgraded in place; otherwise a new account is created.
+  const email = await playerEmail(name), password = playerPass(pin);
+  const j = await postJson(authUrl(s ? 'update' : 'signUp'), s ? {idToken: s.idToken, email, password, returnSecureToken: true}
+    : {email, password, returnSecureToken: true}).catch(e => { throw authError(e); });
+  s = saveSession(PLAYER, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
+  await claimName(s, name);
+  setPlayer(name, true);
+  await pullProgress(s);
+}
+async function securePlayer(pin) {
+  const s = await session(PLAYER);
+  const j = await postJson(authUrl('update'), {idToken: s.idToken, email: await playerEmail(playerName),
+    password: playerPass(pin), returnSecureToken: true}).catch(e => { throw authError(e); });
+  const s2 = saveSession(PLAYER, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
+  await db('PUT', `players/${s2.uid}/secured`, true, s2);
+  setPlayer(playerName, true);
+}
+async function loginPlayer(name, pin) {
+  const j = await postJson(authUrl('signInWithPassword'), {email: await playerEmail(name), password: playerPass(pin),
+    returnSecureToken: true}).catch(e => { throw authError(e); });
+  const s = saveSession(PLAYER, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
+  let mine = await db('GET', `players/${s.uid}/name`);
+  if (!mine) { await claimName(s, name); mine = name; }  // the admin removed this player: take the name back
+  setPlayer(mine, true);
+  await pullProgress(s);
+}
+// Cleared levels are kept on the server too, so they come back with the account.
+function saveProgress(n) {
+  safeSet('pac-progress', n);
+  if (LB_ON && playerName && loadSession(PLAYER))
+    session(PLAYER).then(s => db('PUT', `players/${s.uid}/progress`, n, s)).catch(() => {});
+}
+async function pullProgress(s) {
+  const n = +(await db('GET', `players/${s.uid}/progress`)) || 0;
+  if (n > progress()) safeSet('pac-progress', n);
+  else if (progress() > n) await db('PUT', `players/${s.uid}/progress`, progress(), s).catch(() => {});
 }
 function syncName() {
   if (!LB_ON || !loadSession(PLAYER)) return;
-  const apply = name => {
-    if (name === playerName) return;
-    playerName = name; safeSet('pac-name', name);
-    if (state === 'title' || state === 'over') showPanel(state);
-  };
-  session(PLAYER).then(s => db('GET', `players/${s.uid}/name`)).then(n => apply(n || ''))
-    .catch(() => { if (!loadSession(PLAYER)) apply(''); });
+  const before = playerName + '/' + progress();
+  const refresh = () => { if (before !== playerName + '/' + progress() && (state === 'title' || state === 'over')) showPanel(state); };
+  session(PLAYER).then(async s => {
+    const name = (await db('GET', `players/${s.uid}/name`)) || '';
+    if (name !== playerName) { playerName = name; safeSet('pac-name', name); }
+    if (name) await pullProgress(s);
+    refresh();
+  }).catch(() => { if (!loadSession(PLAYER)) { setPlayer('', false); refresh(); } });
 }
 async function submitScore() {
   if (!LB_ON || !playerName || score <= 0) return;
@@ -713,8 +786,20 @@ async function adminLogin(email, password) {
     {email, password, returnSecureToken: true});
   saveSession(ADMIN, j.localId, j.idToken, j.refreshToken, +j.expiresIn);
 }
-async function adminDelete(id) {
-  await db('DELETE', `scores/${id}`, undefined, await session(ADMIN));
+// Moves an older player (no code yet) to a new device: keeps their score and levels under released/{name}
+// and frees the name, so they get everything back when they register again with the same name.
+async function adminRelease(row, done) {
+  const s = await session(ADMIN), key = row.name.toLowerCase();
+  const body = {[`released/${key}`]: {score: row.score, progress: done}, [`scores/${row.id}`]: null, [`players/${row.id}`]: null};
+  if (await db('GET', 'names/' + encodeURIComponent(key)) === row.id) body[`names/${key}`] = null;
+  await db('PATCH', '', body, s);
+}
+// Removes the player from the table and frees their name.
+async function adminDelete(row) {
+  const s = await session(ADMIN), key = row.name.toLowerCase();
+  const body = {[`scores/${row.id}`]: null, [`players/${row.id}`]: null};
+  if (await db('GET', 'names/' + encodeURIComponent(key)) === row.id) body[`names/${key}`] = null;
+  await db('PATCH', '', body, s);
 }
 
 const el = (tag, props) => Object.assign(document.createElement(tag), props);
@@ -724,7 +809,7 @@ function loadBoard() {
   const admin = isAdmin(), me = (loadSession(PLAYER) || {}).uid;
   b.innerHTML = '<h2>🏆 טבלת שיאים</h2>';
   const body = b.appendChild(el('div', {className: 'muted', textContent: 'טוען...'}));
-  fetchTop(admin ? 100 : 10).then(rows => {
+  Promise.all([fetchTop(admin ? 100 : 10), admin ? db('GET', 'players') : null]).then(([rows, players]) => {
     if (!rows.length) { body.textContent = 'עוד אין שיאים. תהיה הראשון!'; return; }
     const ol = el('ol');
     rows.forEach((row, i) => {
@@ -733,30 +818,62 @@ function loadBoard() {
                 el('span', {className: 'n', textContent: row.name}),
                 el('span', {textContent: row.score}));
       if (admin) li.append(el('button', {className: 'del', textContent: '🗑', title: 'מחק', onclick: () => {
-        if (!confirm(`למחוק את התוצאה של ${row.name}?`)) return;
-        adminDelete(row.id).then(loadBoard).catch(e => alert('המחיקה נכשלה: ' + e.message));
+        if (!confirm(`למחוק את ${row.name}? הניקוד יימחק והשם יתפנה.`)) return;
+        adminDelete(row).then(loadBoard).catch(e => alert('המחיקה נכשלה: ' + e.message));
       }}));
+      if (admin && !(players && players[row.id] && players[row.id].secured)) li.append(el('button', {className: 'del', textContent: '🔁',
+        title: 'העבר למכשיר חדש', onclick: () => {
+          const n = prompt(`להעביר את ${row.name} למכשיר חדש?\nהניקוד יישמר, והשחקן יירשם שוב עם אותו שם וקוד חדש.\nכמה שלבים הוא סיים? (0-10)`, '0');
+          if (n === null) return;
+          adminRelease(row, Math.max(0, Math.min(10, parseInt(n, 10) || 0))).then(loadBoard)
+            .catch(e => alert('ההעברה נכשלה: ' + e.message));
+        }}));
     });
     body.replaceWith(ol);
   }).catch(() => { body.textContent = 'אין חיבור לטבלת השיאים'; });
 }
-function nameForm() {
-  const f = el('form', {className: 'nameform', innerHTML:
-    '<div class="row"><input id="nameIn" maxlength="12" placeholder="בחר שם" autocomplete="off"><button>שמור</button></div>' +
-    '<div class="hint">כדי לשחק צריך לבחור שם. אי אפשר לשנות אותו אחר כך.</div><div class="err" id="nameErr"></div>'});
-  f.querySelector('input').value = legacyName;
+const ACCOUNT_ERR = {taken: 'השם הזה תפוס, נסה שם אחר', wrong: 'שם או קוד שגויים',
+  many: 'יותר מדי ניסיונות, נסה שוב מאוחר יותר'};
+// mode: 'new' (pick a name and code), 'login' (name and code from before), 'secure' (add a code to an existing player)
+function accountForm(mode) {
+  const f = el('form', {className: 'nameform', innerHTML: '<div class="row">' +
+    (mode === 'secure' ? '' : '<input id="nameIn" maxlength="12" placeholder="שם" autocomplete="off">') +
+    '<input id="pinIn" type="password" inputmode="numeric" maxlength="4" placeholder="קוד 4 ספרות" autocomplete="off" dir="ltr">' +
+    `<button>${mode === 'login' ? 'התחבר' : 'שמור'}</button></div>` +
+    `<div class="hint">${{new: 'בחר שם וקוד של 4 ספרות. איתם תוכל להתחבר שוב גם בטלפון חדש. את השם אי אפשר לשנות.',
+      login: 'התחבר עם השם והקוד שבחרת.',
+      secure: 'קבע קוד של 4 ספרות. ככה המשתמש, הניקוד והשלבים לא ילכו לאיבוד אם תמחק את המשחק.'}[mode]}</div>` +
+    '<div class="err" id="nameErr"></div>'});
+  if (mode === 'new') f.querySelector('#nameIn').value = legacyName;
   f.addEventListener('submit', e => {
     e.preventDefault();
-    const v = $('nameIn').value.trim().replace(/\s+/g, ' '), err = $('nameErr'), btn = f.querySelector('button');
-    if (!NAME_RE.test(v)) { err.textContent = 'שם של 2-12 אותיות או מספרים'; return; }
-    btn.disabled = true; err.textContent = 'שומר...';
-    registerName(v).then(() => showPanel(state)).catch(ex => {
+    const err = $('nameErr'), btn = f.querySelector('button'), pin = $('pinIn').value;
+    const name = mode === 'secure' ? playerName : $('nameIn').value.trim().replace(/\s+/g, ' ');
+    if (!NAME_RE.test(name)) { err.textContent = 'שם של 2-12 אותיות או מספרים'; return; }
+    if (!PIN_RE.test(pin)) { err.textContent = 'הקוד צריך להיות 4 ספרות'; return; }
+    btn.disabled = true; err.textContent = mode === 'login' ? 'מתחבר...' : 'שומר...';
+    const job = mode === 'login' ? loginPlayer(name, pin) : mode === 'secure' ? securePlayer(pin) : registerName(name, pin);
+    job.then(() => showPanel(state)).catch(ex => {
       btn.disabled = false;
-      err.textContent = ex.message === 'taken' ? 'השם הזה תפוס, נסה שם אחר' : 'אין חיבור לאינטרנט, נסה שוב';
+      err.textContent = ACCOUNT_ERR[ex.message] || 'אין חיבור לאינטרנט, נסה שוב';
     });
   });
   return f;
 }
+function accountBlock() {
+  const d = el('div', {className: 'nameform'});
+  d.append(accountForm(acctMode), el('button', {className: 'link',
+    textContent: acctMode === 'new' ? 'כבר יש לי משתמש? התחברות' : 'אין לי משתמש? הרשמה',
+    onclick: () => { acctMode = acctMode === 'new' ? 'login' : 'new'; showPanel(state); }}));
+  return d;
+}
+function showAccount(mode) {
+  const p = $('panel');
+  clearPanel(p);
+  p.append(menu(), el('h1', {textContent: mode === 'secure' ? '🔐 שמירת המשתמש' : '🔑 התחברות'}), accountForm(mode),
+    el('button', {className: 'link', textContent: 'חזרה', onclick: () => showPanel(state)}));
+}
+const whoLine = () => el('div', {className: 'who', textContent: `משחק בתור: ${playerName}${secured ? ' 🔐' : ''}`});
 // The admin enters a PIN; the matching Firebase account's password is derived from it, so the PIN never sits in the code.
 const ADMIN_EMAIL = 'admin@dpackman.app';
 function clearPanel(p) {
@@ -798,6 +915,7 @@ function menu() {
   if (LB_ON) {
     if (isAdmin()) item('🚪 יציאה ממצב מנהל', () => { safeSet(ADMIN, ''); showPanel(state); });
     else item('🛡️ מצב מנהל', showAdminLogin);
+    item('🔑 התחברות למשתמש קיים', () => showAccount('login'));
   }
   item('❓ איך משחקים', showHelp);
   return wrap;
@@ -823,7 +941,7 @@ function showPanel(kind) {
     : last ? 'ניצחת את כל השלבים! 🏆' : `שלב ${levelIdx + 1} הושלם! 🎉`}));
   p.append(el('div', {className: 'final', innerHTML: `${LV.icon} ${LV.name} · ניקוד: <b>${score}</b>`}));
   if (LB_ON) {
-    p.append(playerName ? el('div', {className: 'who', textContent: `משחק בתור: ${playerName}`}) : nameForm());
+    p.append(playerName ? whoLine() : accountBlock());
     if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: אפשר למחוק תוצאות'}));
   }
   const ready = !LB_ON || !!playerName;
@@ -841,7 +959,9 @@ function showLobby(p) {
   const ready = !LB_ON || !!playerName, done = progress();
   const next = Math.min(done, LEVELS.length - 1), nl = LEVELS[next];
   p.append(el('h1', {className: 'logo', textContent: 'פאקמן'}));
-  if (LB_ON) p.append(playerName ? el('div', {className: 'who', textContent: `משחק בתור: ${playerName}`}) : nameForm());
+  if (LB_ON) p.append(playerName ? whoLine() : accountBlock());
+  if (LB_ON && playerName && !secured) p.append(el('button', {className: 'secure-btn',
+    textContent: '🔐 שמור את המשתמש שלך עם קוד', onclick: () => showAccount('secure')}));
   const play = p.appendChild(el('button', {id: 'go', className: 'play', disabled: !ready, onclick: () => newGame(next)}));
   play.append(el('b', {textContent: '▶ התחל לשחק'}), el('span', {textContent: `${nl.icon} שלב ${next + 1}: ${nl.name}`}));
   p.append(el('button', {className: 'secondary', textContent: '🗺️ בחירת שלב', disabled: !ready, onclick: showLevels}));
