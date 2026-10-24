@@ -20,7 +20,7 @@
       ".read": true,
       ".indexOn": ["score"],
       "$uid": {
-        ".write": "auth != null && ((auth.uid === $uid && newData.exists() && (!data.exists() || newData.child('score').val() > data.child('score').val())) || (auth.uid === 'ADMIN_UID' && !newData.exists()))",
+        ".write": "auth != null && ((auth.uid === $uid && newData.exists() && (!data.exists() || newData.child('score').val() > data.child('score').val())) || (auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2' && !newData.exists()))",
         ".validate": "newData.hasChildren(['name', 'score']) && newData.child('name').val() === newData.parent().parent().child('players').child($uid).child('name').val() && newData.child('score').isNumber() && newData.child('score').val() > 0 && newData.child('score').val() < 1000000",
         "name": { ".validate": true },
         "score": { ".validate": true },

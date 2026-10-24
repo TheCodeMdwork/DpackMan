@@ -32,7 +32,7 @@
   (הסיסמה היא `pacman-` ואחריה הקוד).
 
 הגדרה: ב-`index.html` ממלאים את `LB.db` ואת `LB.apiKey`, וב-`database.rules.json`
-מחליפים את `ADMIN_UID` ב-User UID של המנהל ומדביקים את הקובץ בלשונית Rules של Realtime Database.
+מדביקים את הקובץ בלשונית Rules של Realtime Database.
 
 ## העלאה לגוגל פליי
 ה-APK של debug טוב להתקנה ישירה, לא לחנות. בשביל החנות:
