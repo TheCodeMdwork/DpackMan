@@ -85,6 +85,13 @@ canvas{display:block}
 #panel .side #board{width:100%;max-height:none}
 #panel .side .close{position:absolute;top:8px;right:8px;padding:2px 10px;background:none;border:none;font-size:20px}
 #panel.with-side{padding-left:282px}
+#panel .plist{width:min(300px,94%);max-height:62%;overflow-y:auto;display:flex;flex-direction:column;gap:6px;font-size:14px}
+#panel .prow{background:rgba(42,60,255,.15);border-radius:10px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+#panel .ptop,#panel .plevels{display:flex;align-items:center;justify-content:space-between;gap:6px}
+#panel .pname{font-weight:bold;unicode-bidi:plaintext;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#panel .pscore{background:none;border:none;padding:2px 4px;font-size:14px;font-weight:normal;color:#ffdd00}
+#panel .plevels button{width:34px;height:30px;padding:0;font-size:18px;border-radius:8px}
+#panel .plevels span{flex:1;text-align:center;font-size:13px}
 #panel .help{max-width:270px;font-size:14px;line-height:1.7;text-align:center;color:#ddd}
 #board h2{margin:0 0 6px;font-size:16px;color:#2de0ff;text-align:center}
 #board ol{margin:0;padding:0;list-style:none}
@@ -746,15 +753,22 @@ async function loginPlayer(name, pin) {
   await pullProgress(s);
 }
 // Cleared levels are kept on the server too, so they come back with the account.
+// 'pac-progress-seen' is the server value this device last synced; when the server holds something
+// else, it changed elsewhere (another phone, or the admin) and wins over the device.
 function saveProgress(n) {
   safeSet('pac-progress', n);
   if (LB_ON && playerName && loadSession(PLAYER))
-    session(PLAYER).then(s => db('PUT', `players/${s.uid}/progress`, n, s)).catch(() => {});
+    session(PLAYER).then(s => db('PUT', `players/${s.uid}/progress`, n, s))
+      .then(() => safeSet('pac-progress-seen', n)).catch(() => {});
 }
 async function pullProgress(s) {
-  const n = +(await db('GET', `players/${s.uid}/progress`)) || 0;
-  if (n > progress()) safeSet('pac-progress', n);
-  else if (progress() > n) await db('PUT', `players/${s.uid}/progress`, progress(), s).catch(() => {});
+  const server = +(await db('GET', `players/${s.uid}/progress`)) || 0, seen = safeGet('pac-progress-seen');
+  if ((seen !== null && seen !== '' && +seen !== server) || server > progress()) safeSet('pac-progress', server);
+  let synced = server;
+  if (progress() > server) {
+    try { await db('PUT', `players/${s.uid}/progress`, progress(), s); synced = progress(); } catch (e) {}
+  }
+  safeSet('pac-progress-seen', synced);
 }
 function syncName() {
   if (!LB_ON || !loadSession(PLAYER)) return;
@@ -967,13 +981,63 @@ function showLobby(p) {
   p.append(el('button', {className: 'secondary', textContent: '🗺️ בחירת שלב', disabled: !ready, onclick: showLevels}));
   p.append(el('div', {className: 'progress', textContent: `⭐ ${Math.min(done, LEVELS.length)}/${LEVELS.length} שלבים`}));
   if (!LB_ON) return;
-  if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: כל השלבים פתוחים'}));
+  if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: כל השלבים פתוחים'}),
+    el('button', {className: 'secondary', textContent: '👥 ניהול שחקנים', onclick: showPlayers}));
   const side = el('aside', {className: 'side'}), wide = p.clientWidth >= 560;
   const toggle = open => { side.classList.toggle('open', open); p.classList.toggle('with-side', open && wide); };
   side.append(el('button', {className: 'close', textContent: '✕', title: 'סגור', onclick: () => toggle(false)}), el('div', {id: 'board'}));
   p.append(el('button', {className: 'trophy', textContent: '🏆', title: 'טבלת שיאים', onclick: () => toggle(!side.classList.contains('open'))}), side);
   toggle(wide);
   loadBoard();
+}
+// Admin: every player with their unlocked levels (one at a time, up or down) and their high score.
+async function adminSetProgress(uid, n) {
+  await db('PUT', `players/${uid}/progress`, n, await session(ADMIN));
+}
+async function adminSetScore(uid, name, score) {
+  await db('PUT', `scores/${uid}`, {name, score}, await session(ADMIN));
+}
+function showPlayers() {
+  const p = $('panel');
+  clearPanel(p);
+  p.append(menu(), el('h1', {textContent: '👥 ניהול שחקנים'}));
+  const list = p.appendChild(el('div', {className: 'plist', textContent: 'טוען...'}));
+  p.append(el('button', {className: 'secondary', textContent: 'חזרה', onclick: () => showPanel('title')}));
+  Promise.all([db('GET', 'players'), db('GET', 'scores')]).then(([players, scores]) => {
+    const rows = Object.entries(players || {}).filter(([, v]) => v && v.name)
+      .map(([id, v]) => ({id, name: v.name, secured: !!v.secured, progress: +v.progress || 0,
+        score: scores && scores[id] ? +scores[id].score : 0}))
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    list.textContent = rows.length ? '' : 'עוד אין שחקנים';
+    rows.forEach(r => list.append(playerRow(r)));
+  }).catch(() => { list.textContent = 'אין חיבור לשרת'; });
+}
+function playerRow(r) {
+  const row = el('div', {className: 'prow'});
+  const top = row.appendChild(el('div', {className: 'ptop'}));
+  top.append(el('span', {className: 'pname', textContent: r.name + (r.secured ? ' 🔐' : '')}));
+  const sc = top.appendChild(el('button', {className: 'pscore', title: 'שנה ניקוד שיא'}));
+  const showScore = () => { sc.textContent = `🏆 ${r.score} ✏️`; };
+  sc.onclick = () => {
+    const v = prompt(`ניקוד שיא חדש ל-${r.name}:`, r.score);
+    if (v === null) return;
+    const n = parseInt(v, 10);
+    if (!(n > 0 && n < 1000000)) { alert('צריך מספר בין 1 ל-999999'); return; }
+    adminSetScore(r.id, r.name, n).then(() => { r.score = n; showScore(); }).catch(e => alert('השינוי נכשל: ' + e.message));
+  };
+  const lv = row.appendChild(el('div', {className: 'plevels'}));
+  const label = el('span');
+  const change = d => adminSetProgress(r.id, r.progress + d).then(() => { r.progress += d; renderLevels(); })
+    .catch(e => alert('השינוי נכשל: ' + e.message));
+  const minus = el('button', {textContent: '−', title: 'נעל שלב', onclick: () => change(-1)});
+  const plus = el('button', {textContent: '+', title: 'פתח עוד שלב', onclick: () => change(1)});
+  const renderLevels = () => {
+    label.textContent = r.progress >= LEVELS.length ? '🔓 כל השלבים ⭐' : `🔓 פתוח עד שלב ${r.progress + 1}`;
+    minus.disabled = r.progress <= 0; plus.disabled = r.progress >= LEVELS.length;
+  };
+  lv.append(minus, label, plus);
+  showScore(); renderLevels();
+  return row;
 }
 function showLevels() {
   const p = $('panel');
