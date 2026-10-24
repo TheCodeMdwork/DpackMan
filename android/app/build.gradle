@@ -17,7 +17,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // CI signs every build with the same key (from the ANDROID_KEYSTORE_B64 secret), so each new
+    // APK installs as an update over the previous one instead of needing an uninstall.
+    def fixedKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
+    signingConfigs {
+        if (fixedKeystore) {
+            fixed {
+                storeFile file(fixedKeystore)
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (fixedKeystore) signingConfig signingConfigs.fixed
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
