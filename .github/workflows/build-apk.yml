@@ -37,7 +37,21 @@ jobs:
           fi
       - run: npm ci
       - run: npm run build && npx cap sync android
+      - name: Use the fixed signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p ~/.android && echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          else
+            echo "::warning title=Signing::ANDROID_KEYSTORE_B64 secret is missing, so this APK will not install over the previous one"
+          fi
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - name: Show the signing certificate
+        run: |
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          cert=$("$bt/apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | grep -m1 SHA-256)
+          echo "::notice title=Signing certificate::$cert"
       - uses: actions/upload-artifact@v4
         with:
           name: chomper-apk
