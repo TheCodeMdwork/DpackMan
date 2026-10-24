@@ -559,15 +559,19 @@ function setState(s) {
   setPaused(false);
   const m = $('msg');
   phase = 0;
-  m.innerHTML = {ready: roundTitle(), play: '<span class="count go">צא!</span>', win: 'LEVEL CLEAR!'}[s] || '';
+  // Only build the round intro when a round starts: at game over lives is 0.
+  m.innerHTML = s === 'ready' ? roundTitle() : s === 'play' ? '<span class="count go">צא!</span>' : s === 'win' ? 'LEVEL CLEAR!' : '';
   if (s === 'over' || s === 'cleared') safeSet('chomper-hi', hi);
   const panel = s === 'title' || s === 'over' || s === 'cleared';
   $('panel').hidden = !panel;
   if (panel) showPanel(s);
   updateHud();
 }
-const roundTitle = () => `<div class="round"><div class="pill">סיבוב <b>${4 - lives}</b> מתוך 3 <i>${'●'.repeat(4 - lives)}${'○'.repeat(lives - 1)}</i></div>` +
-  `<div class="lvl">${LV.icon} שלב ${levelIdx + 1} · ${LV.name}</div>${LV.hint ? `<div class="hint">💡 ${LV.hint}</div>` : ''}</div>`;
+function roundTitle() {
+  const r = Math.min(3, Math.max(1, 4 - lives));
+  return `<div class="round"><div class="pill">סיבוב <b>${r}</b> מתוך 3 <i>${'●'.repeat(r)}${'○'.repeat(3 - r)}</i></div>` +
+    `<div class="lvl">${LV.icon} שלב ${levelIdx + 1} · ${LV.name}</div>${LV.hint ? `<div class="hint">💡 ${LV.hint}</div>` : ''}</div>`;
+}
 const ROUND_CARD = 1.6, COUNT_STEP = 1;  // seconds the round intro shows, then each of 3-2-1
 function newLevel() {
   pellets = MAP.map(r => [...r].map(c => (c === '.' || c === 'o') ? c : ' '));
