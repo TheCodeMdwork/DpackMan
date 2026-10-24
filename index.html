@@ -23,16 +23,20 @@ body{position:fixed;inset:0;overscroll-behavior:none;display:flex;flex-direction
 #stage{position:relative}
 canvas{display:block}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:26px;font-weight:bold;color:#ffdd00;text-shadow:0 0 8px #000,0 0 4px #000;pointer-events:none;white-space:pre-line}
-#msg .count{display:flex;align-items:center;justify-content:center;width:1.5em;height:1.5em;font-size:3em;border-radius:50%;background:rgba(0,0,24,.88);border:4px solid #ffdd00;box-shadow:0 0 30px rgba(255,221,0,.4);animation:pop .7s ease-out}
-#msg .round{direction:rtl;font-family:system-ui,sans-serif;background:rgba(0,0,24,.9);border:3px solid #ffdd00;border-radius:20px;padding:12px 30px 14px;box-shadow:0 0 30px rgba(255,221,0,.35);animation:pop .5s ease-out;line-height:1.15}
-#msg .round .lbl{font-size:.75em;color:#fff}
-#msg .round .num{font-size:2.6em;color:#ffdd00}
-#msg .round .of{font-size:.7em;color:#ddd}
-#msg .round .dots{font-size:.7em;letter-spacing:8px;color:#ffdd00;margin:4px 0 2px}
-#msg .round small{margin-top:6px;font-size:.5em}
+#msg .count{display:block;font-size:3.2em;animation:pop .9s ease-out}
+#msg .round{direction:rtl;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:.3em;animation:rise .35s ease-out}
+#msg .round .pill{display:flex;align-items:center;gap:.5em;font-size:.55em;color:#fff;background:rgba(0,0,24,.85);border:2px solid #ffdd00;border-radius:999px;padding:.25em .95em}
+#msg .round .pill b{color:#ffdd00}
+#msg .round .pill i{font-style:normal;letter-spacing:.15em;color:#ffdd00;font-size:.85em}
+#msg .round .lvl{font-size:.45em;font-weight:normal;color:#fff;background:rgba(0,0,24,.7);border-radius:8px;padding:.15em .6em}
+#msg .round .hint{max-width:15em;font-size:.48em;color:#111;background:#ffdd00;border-radius:10px;padding:.3em .8em;box-shadow:0 0 14px rgba(255,221,0,.6);animation:nudge .8s ease-in-out infinite alternate}
+@keyframes rise{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+@keyframes nudge{from{transform:scale(1)}to{transform:scale(1.06)}}
 #msg .go{color:#7dff6b}
 @keyframes pop{from{transform:scale(1.9);opacity:0}30%{opacity:1}to{transform:scale(1);opacity:1}}
-#pauseBtn{display:none;position:absolute;top:4px;left:4px;z-index:5;width:48px;height:48px;touch-action:none;padding:0;border-radius:10px;border:2px solid #2a3cff;background:rgba(10,10,42,.85);color:#fff;font-size:24px;font-weight:bold;line-height:1}
+#hud{min-height:48px}
+#hudR{display:flex;align-items:center;gap:8px}
+#pauseBtn{display:none;width:40px;height:40px;touch-action:none;padding:0;border-radius:10px;border:2px solid #2a3cff;background:#0a0a2a;color:#fff;font-size:24px;font-weight:bold;line-height:1}
 body.ingame #pauseBtn{display:block}
 #pauseMenu{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.78);direction:rtl;font-family:system-ui,sans-serif}
 #pauseMenu[hidden]{display:none}
@@ -119,8 +123,8 @@ body.ingame #pauseBtn{display:block}
 </style>
 </head>
 <body>
-<div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="timer"></span><span id="lives"></span></div>
-<div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div><button id="pauseBtn" title="עצור">⋮</button><div id="pauseMenu" hidden><h2>⏸ המשחק עצור</h2><button id="resumeBtn">▶ המשך</button><button id="quitBtn" class="secondary">🚪 יציאה ללובי</button><div class="note">יציאה מבטלת את הניסיון והניקוד לא נשמר</div></div></div>
+<div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="timer"></span><span id="hudR"><span id="lives"></span><button id="pauseBtn" title="עצור">⋮</button></span></div>
+<div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div><div id="pauseMenu" hidden><h2>⏸ המשחק עצור</h2><button id="resumeBtn">▶ המשך</button><button id="quitBtn" class="secondary">🚪 יציאה ללובי</button><div class="note">יציאה מבטלת את הניסיון והניקוד לא נשמר</div></div></div>
 <div id="joy"><span class="hint u">▲</span><span class="hint d">▼</span><span class="hint l">◀</span><span class="hint r">▶</span><div id="knob"></div></div>
 <script>
 (() => {
@@ -130,7 +134,7 @@ body.ingame #pauseBtn{display:block}
 // dark: only the area around the player is visible. chase: ghosts never fall back to their corners.
 // blink: ghosts fade in and out. mirror: controls are reversed. ghosts: how many ghosts. time: seconds to clear the level.
 const LEVELS = [
-  {name: 'קלאסי', icon: '🟦', color: '#2a3cff', pac: 7.0, ghost: 6.0, fright: 7, mult: 1,
+  {name: 'קלאסי', icon: '🟦', color: '#2a3cff', pac: 7.0, ghost: 6.0, fright: 7, mult: 1, hint: 'אוכלים את כל הנקודות ובורחים מהרוחות',
   map: [
     "###################",
     "#........#........#",
@@ -154,7 +158,7 @@ const LEVELS = [
     "#.................#",
     "###################"
   ]},
-  {name: 'יער', icon: '🌲', color: '#1fbf5a', pac: 7.2, ghost: 6.5, fright: 6, mult: 2,
+  {name: 'יער', icon: '🌲', color: '#1fbf5a', pac: 7.2, ghost: 6.5, fright: 6, mult: 2, hint: 'הרוחות כאן מהירות יותר',
   map: [
     "###################",
     "#.................#",
@@ -202,7 +206,7 @@ const LEVELS = [
     "#.................#",
     "###################"
   ]},
-  {name: 'אש', icon: '🔥', color: '#ff4a2a', pac: 7.6, ghost: 7.2, fright: 4, mult: 4,
+  {name: 'אש', icon: '🔥', color: '#ff4a2a', pac: 7.6, ghost: 7.2, fright: 4, mult: 4, hint: 'כדור כוח עובד רק 4 שניות',
   map: [
     "###################",
     "#.................#",
@@ -250,55 +254,7 @@ const LEVELS = [
     "#.................#",
     "###################"
   ]},
-  {name: 'רפאים', icon: '👻', color: '#3fe0c5', pac: 7.8, ghost: 7.2, fright: 4, mult: 6, blink: true, hint: 'הרוחות נעלמות ומופיעות',
-  map: [
-    "###################",
-    "#....#.......#....#",
-    "#.##.#.##.##.#.##.#",
-    "#o...............o#",
-    "#..#.#.#...#.#.#..#",
-    "#..#...#...#...#..#",
-    "####.### # ###.####",
-    "   #.#       #.#   ",
-    "####.# ##-## #.####",
-    "    .  #   #  .    ",
-    "####.# ##### #.####",
-    "   #.#       #.#   ",
-    "####.# ##### #.####",
-    "#.................#",
-    "#.#.##.#.#.#.##.#.#",
-    "#o#....#.P.#....#o#",
-    "#...##.#.#.#.##...#",
-    "#.#....#...#....#.#",
-    "#.#.####.#.####.#.#",
-    "#.................#",
-    "###################"
-  ]},
-  {name: 'מראה', icon: '🪞', color: '#ff5fd2', pac: 7.8, ghost: 6.8, fright: 5, mult: 7, mirror: true, hint: 'השליטה הפוכה!',
-  map: [
-    "###################",
-    "#........#........#",
-    "#.#.##.#.#.#.##.#.#",
-    "#o#.............#o#",
-    "#...##.#.#.#.##...#",
-    "#......#...#......#",
-    "####.### # ###.####",
-    "   #.#       #.#   ",
-    "####.# ##-## #.####",
-    "    .  #   #  .    ",
-    "####.# ##### #.####",
-    "   #.#       #.#   ",
-    "####.# ##### #.####",
-    "#....#.......#....#",
-    "#..#.#.##.##.#.#..#",
-    "#o.#.....P.....#.o#",
-    "#.##.#.#.#.#.#.##.#",
-    "#....#.#...#.#....#",
-    "#.##.#.#.#.#.#.##.#",
-    "#.................#",
-    "###################"
-  ]},
-  {name: 'להקה', icon: '🐝', color: '#00b7ff', pac: 8.0, ghost: 7.0, fright: 4, mult: 8, ghosts: 6, hint: '6 רוחות',
+  {name: 'להקה', icon: '🐝', color: '#00b7ff', pac: 7.8, ghost: 7.0, fright: 4, mult: 6, ghosts: 6, hint: '6 רוחות',
   map: [
     "###################",
     "#.................#",
@@ -322,7 +278,7 @@ const LEVELS = [
     "#.................#",
     "###################"
   ]},
-  {name: 'שעון', icon: '⏱️', color: '#ff9f1a', pac: 8.0, ghost: 7.2, fright: 4, mult: 9, time: 90, hint: 'יש לך 90 שניות',
+  {name: 'שעון', icon: '⏱️', color: '#ff9f1a', pac: 7.8, ghost: 7.0, fright: 4, mult: 7, time: 90, hint: 'יש לך 90 שניות',
   map: [
     "###################",
     "#.................#",
@@ -343,6 +299,54 @@ const LEVELS = [
     "##.#.#.#.#.#.#.#.##",
     "#..#.#.......#.#..#",
     "#.##.##.###.##.##.#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'רפאים', icon: '👻', color: '#3fe0c5', pac: 8.0, ghost: 7.2, fright: 4, mult: 8, blink: true, hint: 'הרוחות נעלמות ומופיעות',
+  map: [
+    "###################",
+    "#....#.......#....#",
+    "#.##.#.##.##.#.##.#",
+    "#o...............o#",
+    "#..#.#.#...#.#.#..#",
+    "#..#...#...#...#..#",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#.................#",
+    "#.#.##.#.#.#.##.#.#",
+    "#o#....#.P.#....#o#",
+    "#...##.#.#.#.##...#",
+    "#.#....#...#....#.#",
+    "#.#.####.#.####.#.#",
+    "#.................#",
+    "###################"
+  ]},
+  {name: 'מראה', icon: '🪞', color: '#ff5fd2', pac: 8.0, ghost: 7.0, fright: 5, mult: 9, mirror: true, hint: 'השליטה הפוכה!',
+  map: [
+    "###################",
+    "#........#........#",
+    "#.#.##.#.#.#.##.#.#",
+    "#o#.............#o#",
+    "#...##.#.#.#.##...#",
+    "#......#...#......#",
+    "####.### # ###.####",
+    "   #.#       #.#   ",
+    "####.# ##-## #.####",
+    "    .  #   #  .    ",
+    "####.# ##### #.####",
+    "   #.#       #.#   ",
+    "####.# ##### #.####",
+    "#....#.......#....#",
+    "#..#.#.##.##.#.#..#",
+    "#o.#.....P.....#.o#",
+    "#.##.#.#.#.#.#.##.#",
+    "#....#.#...#.#....#",
+    "#.##.#.#.#.#.#.##.#",
     "#.................#",
     "###################"
   ]},
@@ -562,10 +566,9 @@ function setState(s) {
   if (panel) showPanel(s);
   updateHud();
 }
-const roundTitle = () => `<div class="round"><div class="lbl">סיבוב</div><div class="num">${4 - lives}</div><div class="of">מתוך 3</div>` +
-  `<div class="dots">${'●'.repeat(4 - lives)}${'○'.repeat(lives - 1)}</div>` +
-  `<small>${LV.icon} שלב ${levelIdx + 1}: ${LV.name}${LV.hint ? '<br>' + LV.hint : ''}</small></div>`;
-const ROUND_CARD = 1.6, COUNT_STEP = 0.8;  // seconds the round card shows, then each of 3-2-1
+const roundTitle = () => `<div class="round"><div class="pill">סיבוב <b>${4 - lives}</b> מתוך 3 <i>${'●'.repeat(4 - lives)}${'○'.repeat(lives - 1)}</i></div>` +
+  `<div class="lvl">${LV.icon} שלב ${levelIdx + 1} · ${LV.name}</div>${LV.hint ? `<div class="hint">💡 ${LV.hint}</div>` : ''}</div>`;
+const ROUND_CARD = 1.6, COUNT_STEP = 1;  // seconds the round intro shows, then each of 3-2-1
 function newLevel() {
   pellets = MAP.map(r => [...r].map(c => (c === '.' || c === 'o') ? c : ' '));
   pelletsLeft = pellets.flat().filter(c => c !== ' ').length;
