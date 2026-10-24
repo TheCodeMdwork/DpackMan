@@ -19,12 +19,21 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Check leaderboard database (read only)
+      - name: Check Firebase setup (leaves no data behind)
         run: |
-          url=$(grep -oP "^const LB_URL = '\K[^']*" index.html)
-          if [ -n "$url" ]; then
-            res=$(curl -sS -w ' (HTTP %{http_code})' "$url/scores.json?orderBy=%22score%22&limitToLast=10")
-            echo "::notice title=Leaderboard check::$res"
+          db=$(grep -oP "^  db: '\K[^']*" index.html)
+          key=$(grep -oP "^  apiKey: '\K[^']*" index.html)
+          if [ -n "$db" ] && [ -n "$key" ]; then
+            names=$(curl -s -o /dev/null -w '%{http_code}' "$db/names.json?shallow=true")
+            echo "::notice title=Rules check::names readable: HTTP $names (200 means the new rules are published)"
+            res=$(curl -s -X POST -H 'Content-Type: application/json' -d '{"returnSecureToken":true}' "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$key")
+            tok=$(echo "$res" | jq -r '.idToken // empty')
+            if [ -n "$tok" ]; then
+              curl -s -X POST -H 'Content-Type: application/json' -d "{\"idToken\":\"$tok\"}" "https://identitytoolkit.googleapis.com/v1/accounts:delete?key=$key" > /dev/null
+              echo "::notice title=Auth check::anonymous sign-in works"
+            else
+              echo "::warning title=Auth check::anonymous sign-in failed: $(echo "$res" | jq -c '.error.message')"
+            fi
           fi
       - run: npm ci
       - run: npm run build && npx cap sync android

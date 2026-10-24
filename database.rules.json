@@ -1,11 +1,27 @@
 {
   "rules": {
+    "players": {
+      ".read": true,
+      "$uid": {
+        "name": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists()",
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 12 && !newData.val().matches(/[.$#\\[\\]\\/]/) && newData.parent().parent().parent().child('names').child(newData.val().toLowerCase()).val() === $uid"
+        },
+        "$other": { ".validate": false }
+      }
+    },
+    "names": {
+      ".read": true,
+      "$key": {
+        ".write": "auth != null && !data.exists() && newData.val() === auth.uid && newData.parent().parent().child('players').child(auth.uid).child('name').val().toLowerCase() === $key"
+      }
+    },
     "scores": {
       ".read": true,
       ".indexOn": ["score"],
-      "$playerId": {
-        ".write": "!data.exists() || (newData.exists() && newData.child('score').val() > data.child('score').val())",
-        ".validate": "newData.hasChildren(['name', 'score']) && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 12 && newData.child('score').isNumber() && newData.child('score').val() > 0 && newData.child('score').val() < 1000000",
+      "$uid": {
+        ".write": "auth != null && ((auth.uid === $uid && newData.exists() && (!data.exists() || newData.child('score').val() > data.child('score').val())) || (auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2' && !newData.exists()))",
+        ".validate": "newData.hasChildren(['name', 'score']) && newData.child('name').val() === newData.parent().parent().child('players').child($uid).child('name').val() && newData.child('score').isNumber() && newData.child('score').val() > 0 && newData.child('score').val() < 1000000",
         "name": { ".validate": true },
         "score": { ".validate": true },
         "$other": { ".validate": false }
