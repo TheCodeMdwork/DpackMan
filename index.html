@@ -32,7 +32,7 @@ canvas{display:block}
 #msg .round small{margin-top:6px;font-size:.5em}
 #msg .go{color:#7dff6b}
 @keyframes pop{from{transform:scale(1.9);opacity:0}30%{opacity:1}to{transform:scale(1);opacity:1}}
-#pauseBtn{display:none;position:absolute;top:6px;left:6px;z-index:3;width:40px;height:40px;padding:0;border-radius:10px;border:2px solid #2a3cff;background:rgba(10,10,42,.85);color:#fff;font-size:24px;font-weight:bold;line-height:1}
+#pauseBtn{display:none;position:absolute;top:4px;left:4px;z-index:5;width:48px;height:48px;touch-action:none;padding:0;border-radius:10px;border:2px solid #2a3cff;background:rgba(10,10,42,.85);color:#fff;font-size:24px;font-weight:bold;line-height:1}
 body.ingame #pauseBtn{display:block}
 #pauseMenu{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.78);direction:rtl;font-family:system-ui,sans-serif}
 #pauseMenu[hidden]{display:none}
@@ -103,6 +103,7 @@ body.ingame #pauseBtn{display:block}
 #panel .prow{background:rgba(42,60,255,.15);border-radius:10px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
 #panel .ptop,#panel .plevels{display:flex;align-items:center;justify-content:space-between;gap:6px}
 #panel .pname{font-weight:bold;unicode-bidi:plaintext;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#panel .pdel{background:none;border:none;padding:2px 4px;font-size:16px}
 #panel .pscore{background:none;border:none;padding:2px 4px;font-size:14px;font-weight:normal;color:#ffdd00}
 #panel .plevels button{width:34px;height:30px;padding:0;font-size:18px;border-radius:8px}
 #panel .plevels span{flex:1;text-align:center;font-size:13px}
@@ -1063,6 +1064,10 @@ function playerRow(r) {
     minus.disabled = r.progress <= 0; plus.disabled = r.progress >= LEVELS.length;
   };
   lv.append(minus, label, plus);
+  top.append(el('button', {className: 'pdel', textContent: '🗑', title: 'מחק שחקן', onclick: () => {
+    if (!confirm(`למחוק את ${r.name} לגמרי?\nהשם, הניקוד והשלבים יימחקו.`)) return;
+    adminDelete({id: r.id, name: r.name}).then(() => row.remove()).catch(e => alert('המחיקה נכשלה: ' + e.message));
+  }}));
   showScore(); renderLevels();
   return row;
 }
@@ -1173,7 +1178,7 @@ function draw(t) {
 const MIRROR = new Map([[U, D], [D, U], [L, R], [R, L]]);
 function setWant(d) { if (pac) pac.want = LV.mirror ? MIRROR.get(d) : d; }
 const KEYS = {ArrowUp: U, KeyW: U, ArrowDown: D, KeyS: D, ArrowLeft: L, KeyA: L, ArrowRight: R, KeyD: R};
-$('pauseBtn').addEventListener('pointerdown', e => e.stopPropagation());
+$('pauseBtn').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); setPaused(true); });
 $('pauseBtn').addEventListener('click', () => setPaused(true));
 $('resumeBtn').addEventListener('click', () => setPaused(false));
 $('quitBtn').addEventListener('click', () => setState('title'));
