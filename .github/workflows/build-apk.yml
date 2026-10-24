@@ -24,8 +24,12 @@ jobs:
           db=$(grep -oP "^  db: '\K[^']*" index.html)
           key=$(grep -oP "^  apiKey: '\K[^']*" index.html)
           if [ -n "$db" ] && [ -n "$key" ]; then
-            names=$(curl -s -o /dev/null -w '%{http_code}' "$db/names.json?shallow=true")
-            echo "::notice title=Rules check::names readable: HTTP $names (200 means the new rules are published)"
+            rel=$(curl -s -o /dev/null -w '%{http_code}' "$db/released.json?shallow=true")
+            if [ "$rel" = "200" ]; then
+              echo "::notice title=Rules check::the latest database rules are published"
+            else
+              echo "::warning title=Rules check::the latest database rules are NOT published (HTTP $rel), paste database.rules.json into the Firebase console"
+            fi
             res=$(curl -s -X POST -H 'Content-Type: application/json' -d '{"returnSecureToken":true}' "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$key")
             tok=$(echo "$res" | jq -r '.idToken // empty')
             if [ -n "$tok" ]; then
