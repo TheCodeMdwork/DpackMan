@@ -24,6 +24,7 @@ body{position:fixed;inset:0;overscroll-behavior:none;display:flex;flex-direction
 canvas{display:block}
 #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:26px;font-weight:bold;color:#ffdd00;text-shadow:0 0 8px #000,0 0 4px #000;pointer-events:none;white-space:pre-line}
 #msg .count{display:block;font-size:3.2em;animation:pop .9s ease-out}
+#msg .warn{direction:rtl;font-family:system-ui,sans-serif;font-size:15px;color:#fff;background:rgba(200,0,0,.8);padding:6px 12px;border-radius:10px}
 #msg .round{direction:rtl;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:.3em;animation:rise .35s ease-out}
 #msg .round .pill{display:flex;align-items:center;gap:.5em;font-size:.55em;color:#fff;background:rgba(0,0,24,.85);border:2px solid #ffdd00;border-radius:999px;padding:.25em .95em}
 #msg .round .pill b{color:#ffdd00}
@@ -97,6 +98,11 @@ body.ingame #pauseBtn{display:block}
 #panel .play b{font-size:23px}
 #panel .play span{font-size:13px;font-weight:normal}
 #panel .progress{font-size:13px;color:#ccc}
+#panel .daytime{font-size:13px;color:#7dffa0}
+#panel .daytime.out{max-width:260px;font-size:15px;font-weight:bold;color:#ff6b6b;text-align:center}
+#panel .limit{font-size:14px;font-weight:normal}
+#panel .ptime{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px;color:#7dffa0}
+#panel .ptime button{background:none;border:none;padding:2px 4px;font-size:13px;font-weight:normal;color:#2de0ff}
 #panel .trophy{position:absolute;top:8px;left:8px;padding:4px 10px;font-size:22px;line-height:1;background:#0a0a2a;z-index:2}
 #panel .side{position:absolute;top:0;bottom:0;left:0;width:min(270px,86%);box-sizing:border-box;padding:48px 10px 12px;background:#05051a;border-right:2px solid #2a3cff;transform:translateX(-105%);transition:transform .25s;z-index:3;overflow-y:auto}
 #panel .side.open{transform:none}
@@ -684,6 +690,7 @@ function setState(s) {
   m.innerHTML = s === 'ready' ? roundTitle() : s === 'play' ? '<span class="count go">צא!</span>' : s === 'win' ? 'LEVEL CLEAR!' : '';
   if (s === 'over' || s === 'cleared') safeSet('chomper-hi', hi);
   const panel = s === 'title' || s === 'over' || s === 'cleared';
+  if (panel) flushPlaytime();
   $('panel').hidden = !panel;
   if (panel) showPanel(s);
   updateHud();
@@ -703,7 +710,9 @@ function newLevel() {
 }
 function newGame(i) {
   if (LB_ON && !playerName) return;
+  if (outOfTime()) { setState('title'); return; }
   score = 0; lives = 3; timedOut = false;
+  countTime = LB_ON && !isAdmin(); warned = Infinity;
   loadLevel(i); newLevel(); updateHud();
 }
 function startIfNeeded() {
@@ -722,6 +731,7 @@ function setPaused(on) {
 function update(dt) {
   if (paused) return;
   stateT += dt;
+  countPlaytime(dt);
   if (state === 'ready') {
     if (stateT >= ROUND_CARD + 3 * COUNT_STEP) { setState('play'); return; }
     const n = stateT < ROUND_CARD ? 0 : 1 + Math.floor((stateT - ROUND_CARD) / COUNT_STEP);  // 0: round card, then 3, 2, 1
@@ -890,6 +900,7 @@ async function registerName(name, pin) {
   await claimName(s, name);
   setPlayer(name, true);
   await pullProgress(s);
+  await pullPlaytime(s);
 }
 async function securePlayer(pin) {
   const s = await session(PLAYER);
@@ -907,6 +918,7 @@ async function loginPlayer(name, pin) {
   if (!mine) { await claimName(s, name); mine = name; }  // the admin removed this player: take the name back
   setPlayer(mine, true);
   await pullProgress(s);
+  await pullPlaytime(s);
 }
 // Cleared levels are kept on the server too, so they come back with the account.
 // 'pac-progress-seen' is the server value this device last synced; when the server holds something
@@ -928,12 +940,13 @@ async function pullProgress(s) {
 }
 function syncName() {
   if (!LB_ON || !loadSession(PLAYER)) return;
-  const before = playerName + '/' + progress();
-  const refresh = () => { if (before !== playerName + '/' + progress() && (state === 'title' || state === 'over')) showPanel(state); };
+  const key = () => playerName + '/' + progress() + '/' + dayLimit + '/' + Math.ceil(secondsLeft() / 60);
+  const before = key();
+  const refresh = () => { if (before !== key() && (state === 'title' || state === 'over')) showPanel(state); };
   session(PLAYER).then(async s => {
     const name = (await db('GET', `players/${s.uid}/name`)) || '';
     if (name !== playerName) { playerName = name; safeSet('pac-name', name); }
-    if (name) await pullProgress(s);
+    if (name) { await pullProgress(s); await pullPlaytime(s); }
     refresh();
   }).catch(() => { if (!loadSession(PLAYER)) { setPlayer('', false); refresh(); } });
 }
@@ -960,19 +973,123 @@ async function adminLogin(email, password) {
 // and frees the name, so they get everything back when they register again with the same name.
 async function adminRelease(row, done) {
   const s = await session(ADMIN), key = row.name.toLowerCase();
-  const body = {[`released/${key}`]: {score: row.score, progress: done}, [`scores/${row.id}`]: null, [`players/${row.id}`]: null};
+  const body = {[`released/${key}`]: {score: row.score, progress: done}, [`scores/${row.id}`]: null, [`players/${row.id}`]: null,
+    [`playtime/${row.id}`]: null, [`clock/${row.id}`]: null};
   if (await db('GET', 'names/' + encodeURIComponent(key)) === row.id) body[`names/${key}`] = null;
   await db('PATCH', '', body, s);
 }
 // Removes the player from the table and frees their name.
 async function adminDelete(row) {
   const s = await session(ADMIN), key = row.name.toLowerCase();
-  const body = {[`scores/${row.id}`]: null, [`players/${row.id}`]: null};
+  const body = {[`scores/${row.id}`]: null, [`players/${row.id}`]: null, [`playtime/${row.id}`]: null, [`clock/${row.id}`]: null};
   if (await db('GET', 'names/' + encodeURIComponent(key)) === row.id) body[`names/${key}`] = null;
   await db('PATCH', '', body, s);
 }
 
 const el = (tag, props) => Object.assign(document.createElement(tag), props);
+
+// ---------- daily play time ----------
+// Every player gets dailyMinutes of game time a day (Israel time). Only time inside a game counts, paused
+// time doesn't, and the admin has no limit. The count is kept on the server (playtime/{uid}), so a
+// reinstall or a second phone share it, and the day follows the server's clock, so changing the date
+// on the phone doesn't reset it.
+const DEFAULT_MINUTES = 60;
+const cachedLimit = safeGet('pac-limit');
+let dayLimit = cachedLimit !== null && cachedLimit !== '' ? +cachedLimit : DEFAULT_MINUTES;
+let skew = +safeGet('pac-skew') || 0;  // server clock minus this phone's clock
+let pt = {uid: '', day: 0, s: 0, p: 0};  // s: today's seconds the server has, p: seconds not sent yet
+try { Object.assign(pt, JSON.parse(safeGet('pac-time') || '{}')); } catch (e) {}
+let ptBusy = false, ptTick = 0, countTime = false;
+function today() {
+  const d = new Date(Date.now() + skew);
+  try {
+    const v = {};
+    new Intl.DateTimeFormat('en-US', {timeZone: 'Asia/Jerusalem', year: 'numeric', month: 'numeric', day: 'numeric'})
+      .formatToParts(d).forEach(p => { v[p.type] = p.value; });
+    if (v.year && v.month && v.day) return Date.UTC(+v.year, v.month - 1, +v.day) / 864e5;
+  } catch (e) {}
+  return Math.floor((d - d.getTimezoneOffset() * 6e4) / 864e5);
+}
+const savePt = () => safeSet('pac-time', JSON.stringify(pt));
+function ptOwner(uid) {
+  if (pt.uid !== uid) pt = {uid, day: 0, s: 0, p: 0};
+  rollDay();
+}
+// A new day starts from zero.
+function rollDay() {
+  const d = today();
+  if (d !== pt.day) { pt.day = d; pt.s = 0; pt.p = 0; savePt(); }
+}
+function secondsLeft() { rollDay(); return Math.max(0, dayLimit * 60 - pt.s - pt.p); }
+const outOfTime = () => LB_ON && !!playerName && dayLimit > 0 && !isAdmin() && secondsLeft() <= 0;
+async function pullPlaytime(s) {
+  const [now, lim, cur] = await Promise.all([
+    db('PUT', `clock/${s.uid}`, {'.sv': 'timestamp'}, s).catch(() => null),
+    db('GET', 'settings/dailyMinutes').catch(() => undefined),
+    db('GET', `playtime/${s.uid}`, undefined, s).catch(() => undefined)]);
+  if (typeof now === 'number') { skew = now - Date.now(); safeSet('pac-skew', Math.round(skew)); }
+  if (lim !== undefined) { dayLimit = typeof lim === 'number' ? lim : DEFAULT_MINUTES; safeSet('pac-limit', dayLimit); }
+  ptOwner(s.uid);
+  // The server wins over this phone: the admin may have reset today's time.
+  if (cur !== undefined) pt.s = cur && cur.day === pt.day ? +cur.s || 0 : 0;
+  savePt();
+}
+async function flushPlaytime() {
+  if (ptBusy) return;
+  if (!LB_ON || pt.p < 1 || !loadSession(PLAYER)) { savePt(); return; }
+  ptBusy = true;
+  try {
+    const s = await session(PLAYER);
+    if (pt.uid !== s.uid) { ptOwner(s.uid); return; }
+    rollDay();
+    const add = pt.p, day = pt.day, path = `playtime/${s.uid}`;
+    const cur = await db('GET', path, undefined, s);
+    const total = Math.min(86400, Math.round((cur && cur.day === day ? +cur.s || 0 : 0) + add));
+    await db('PUT', path, {day, s: total}, s);
+    if (pt.day === day) { pt.s = total; pt.p = Math.max(0, pt.p - add); }
+  } catch (e) {
+  } finally { ptBusy = false; savePt(); }
+}
+// Warnings at 5 minutes and 1 minute. When the time runs out in the middle of a game, the player
+// finishes that game without interruption; the next one is blocked.
+let warned = Infinity;  // the last warning shown in this game
+function countPlaytime(dt) {
+  if (!countTime || state === 'title' || state === 'over' || state === 'cleared') return;
+  pt.p += dt; ptTick += dt;
+  if (ptTick >= 30) { ptTick = 0; flushPlaytime(); }
+  if (dayLimit <= 0 || state !== 'play' || stateT < 0.8) return;  // not over the round card, countdown or "צא!"
+  const left = dayLimit * 60 - pt.s - pt.p, w = [60, 300].find(x => left <= x);
+  if (left <= 0 || w === undefined || w >= warned) return;
+  warned = w;
+  flashMsg(w === 60 ? '⏳ נשארה דקה אחת להיום' : `⏳ נשארו ${timeText(left)} משחק להיום`);
+}
+function flashMsg(text) {
+  const span = el('span', {className: 'warn', textContent: text});
+  $('msg').replaceChildren(span);
+  setTimeout(() => span.remove(), 3000);
+}
+function timeText(sec) {
+  const m = Math.ceil(sec / 60), h = Math.floor(m / 60);
+  if (m < 60) return m === 1 ? 'דקה' : `${m} דקות`;
+  if (m % 60) return `${h}:${String(m % 60).padStart(2, '0')} שעות`;
+  return h === 1 ? 'שעה' : `${h} שעות`;
+}
+const OUT_TEXT = '⏰ נגמר זמן המשחק להיום. נתראה מחר! 🙂';
+// The lobby line: time left today, or that it's over (then it asks the server once more, in case the admin added time).
+let dayChecked = 0;
+function dayLine() {
+  if (isAdmin()) return el('div', {className: 'daytime', textContent: '⏳ מנהל: בלי הגבלת זמן'});
+  if (dayLimit <= 0) return el('div', {className: 'daytime', textContent: '⏳ בלי הגבלת זמן'});
+  if (!outOfTime()) return el('div', {className: 'daytime', textContent: `⏳ נשאר לך היום: ${timeText(secondsLeft())}`});
+  if (loadSession(PLAYER) && Date.now() - dayChecked > 10000) {
+    dayChecked = Date.now();
+    session(PLAYER).then(pullPlaytime).then(() => { if (state === 'title' && !outOfTime()) showPanel('title'); }).catch(() => {});
+  }
+  return el('div', {className: 'daytime out', textContent: OUT_TEXT});
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushPlaytime(); });
+{ const ps = loadSession(PLAYER); if (ps) ptOwner(ps.uid); }
+
 function loadBoard() {
   const b = $('board');
   if (!b) return;
@@ -1074,7 +1191,8 @@ function showHelp() {
     el('div', {className: 'help', innerHTML: 'אוכלים את כל הנקודות ובורחים מהרוחות.<br>' +
       'כדור גדול הופך את הרוחות לכחולות, ואז אפשר לאכול אותן.<br>' +
       'מסיימים שלב, ונפתח השלב הבא בלובי. כל שלב קשה יותר ושווה יותר נקודות.<br>' +
-      'שליטה: ג׳ויסטיק, החלקה על המסך או החצים במקלדת.'}),
+      'שליטה: ג׳ויסטיק, החלקה על המסך או החצים במקלדת.' +
+      (dayLimit > 0 ? `<br>אפשר לשחק עד ${timeText(dayLimit * 60)} ביום.` : '')}),
     el('button', {textContent: 'חזרה', onclick: () => showPanel(state)}));
 }
 function menu() {
@@ -1114,7 +1232,8 @@ function showPanel(kind) {
     p.append(playerName ? whoLine() : accountBlock());
     if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: אפשר למחוק תוצאות'}));
   }
-  const ready = !LB_ON || !!playerName;
+  const out = outOfTime(), ready = (!LB_ON || !!playerName) && !out;
+  if (out) p.append(el('div', {className: 'daytime out', textContent: OUT_TEXT}));
   const row = p.appendChild(el('div', {className: 'actions'}));
   if (kind === 'over') row.append(el('button', {id: 'go', textContent: 'נסה שוב', disabled: !ready, onclick: () => newGame(levelIdx)}));
   if (kind === 'cleared' && !last) row.append(el('button', {id: 'go', textContent: 'לשלב הבא ▶', disabled: !ready, onclick: () => newGame(levelIdx + 1)}));
@@ -1126,7 +1245,7 @@ function showPanel(kind) {
 // Lobby: one big button that continues where you left off, level select on its own screen,
 // and the leaderboard in a side drawer (always open on wide screens).
 function showLobby(p) {
-  const ready = !LB_ON || !!playerName, done = progress();
+  const ready = (!LB_ON || !!playerName) && !outOfTime(), done = progress();
   const next = Math.min(done, LEVELS.length - 1), nl = LEVELS[next];
   p.append(el('h1', {className: 'logo', textContent: 'פאקמן'}));
   if (LB_ON) p.append(playerName ? whoLine() : accountBlock());
@@ -1137,6 +1256,7 @@ function showLobby(p) {
   p.append(el('button', {className: 'secondary', textContent: '🗺️ בחירת שלב', disabled: !ready, onclick: showLevels}));
   p.append(el('div', {className: 'progress', textContent: `⭐ ${Math.min(done, LEVELS.length)}/${LEVELS.length} שלבים`}));
   if (!LB_ON) return;
+  if (playerName) p.append(dayLine());
   if (isAdmin()) p.append(el('div', {className: 'admin', textContent: '🛡️ מצב מנהל: כל השלבים פתוחים'}),
     el('button', {className: 'secondary', textContent: '👥 ניהול שחקנים', onclick: showPlayers}));
   const side = el('aside', {className: 'side'}), wide = p.clientWidth >= 560;
@@ -1153,16 +1273,36 @@ async function adminSetProgress(uid, n) {
 async function adminSetScore(uid, name, score) {
   await db('PUT', `scores/${uid}`, {name, score}, await session(ADMIN));
 }
+async function adminSetLimit(minutes) {
+  await db('PUT', 'settings/dailyMinutes', minutes, await session(ADMIN));
+}
+async function adminResetTime(uid) {
+  await db('DELETE', `playtime/${uid}`, undefined, await session(ADMIN));
+}
 function showPlayers() {
   const p = $('panel');
   clearPanel(p);
   p.append(menu(), el('h1', {textContent: '👥 ניהול שחקנים'}));
+  const lim = p.appendChild(el('button', {className: 'secondary limit', title: 'שנה את זמן המשחק היומי'}));
+  const showLim = () => { lim.textContent = `⏳ זמן משחק ביום: ${dayLimit > 0 ? timeText(dayLimit * 60) : 'בלי הגבלה'} ✏️`; };
+  lim.onclick = () => {
+    const v = prompt('כמה דקות משחק ביום לכל שחקן? (0 = בלי הגבלה)', dayLimit);
+    if (v === null) return;
+    const n = parseInt(v, 10);
+    if (!(n >= 0 && n <= 1440)) { alert('צריך מספר בין 0 ל-1440'); return; }
+    adminSetLimit(n).then(() => { dayLimit = n; safeSet('pac-limit', n); showLim(); }).catch(e => alert('השינוי נכשל: ' + e.message));
+  };
+  showLim();
   const list = p.appendChild(el('div', {className: 'plist', textContent: 'טוען...'}));
   p.append(el('button', {className: 'secondary', textContent: 'חזרה', onclick: () => showPanel('title')}));
-  Promise.all([db('GET', 'players'), db('GET', 'scores')]).then(([players, scores]) => {
+  Promise.all([db('GET', 'players'), db('GET', 'scores'), session(ADMIN).then(s => db('GET', 'playtime', undefined, s)).catch(() => null),
+    db('GET', 'settings/dailyMinutes').catch(() => undefined)]).then(([players, scores, times, minutes]) => {
+    if (minutes !== undefined) { dayLimit = typeof minutes === 'number' ? minutes : DEFAULT_MINUTES; safeSet('pac-limit', dayLimit); showLim(); }
+    const d = today();
     const rows = Object.entries(players || {}).filter(([, v]) => v && v.name)
       .map(([id, v]) => ({id, name: v.name, secured: !!v.secured, progress: +v.progress || 0,
-        score: scores && scores[id] ? +scores[id].score : 0}))
+        score: scores && scores[id] ? +scores[id].score : 0,
+        used: times && times[id] && times[id].day === d ? +times[id].s || 0 : 0}))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     list.textContent = rows.length ? '' : 'עוד אין שחקנים';
     rows.forEach(r => list.append(playerRow(r)));
@@ -1192,17 +1332,23 @@ function playerRow(r) {
     minus.disabled = r.progress <= 0; plus.disabled = r.progress >= LEVELS.length;
   };
   lv.append(minus, label, plus);
+  const tm = row.appendChild(el('div', {className: 'ptime'}));
+  const used = el('span');
+  const reset = el('button', {textContent: '↺ אפס', title: 'אפס את זמן המשחק של היום', onclick: () =>
+    adminResetTime(r.id).then(() => { r.used = 0; showTime(); }).catch(e => alert('האיפוס נכשל: ' + e.message))});
+  const showTime = () => { used.textContent = `⏳ שיחק היום: ${Math.floor(r.used / 60)} דקות`; reset.disabled = !r.used; };
+  tm.append(used, reset);
   top.append(el('button', {className: 'pdel', textContent: '🗑', title: 'מחק שחקן', onclick: () => {
     if (!confirm(`למחוק את ${r.name} לגמרי?\nהשם, הניקוד והשלבים יימחקו.`)) return;
     adminDelete({id: r.id, name: r.name}).then(() => row.remove()).catch(e => alert('המחיקה נכשלה: ' + e.message));
   }}));
-  showScore(); renderLevels();
+  showScore(); renderLevels(); showTime();
   return row;
 }
 function showLevels() {
   const p = $('panel');
   clearPanel(p);
-  p.append(menu(), el('h1', {textContent: '🗺️ בחירת שלב'}), levelGrid(!LB_ON || !!playerName),
+  p.append(menu(), el('h1', {textContent: '🗺️ בחירת שלב'}), levelGrid((!LB_ON || !!playerName) && !outOfTime()),
     el('button', {className: 'secondary', textContent: 'חזרה', onclick: () => showPanel('title')}));
 }
 

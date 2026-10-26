@@ -24,7 +24,7 @@ jobs:
           db=$(grep -oP "^  db: '\K[^']*" index.html)
           key=$(grep -oP "^  apiKey: '\K[^']*" index.html)
           if [ -n "$db" ] && [ -n "$key" ]; then
-            rel=$(curl -s -o /dev/null -w '%{http_code}' "$db/released.json?shallow=true")
+            rel=$(curl -s -o /dev/null -w '%{http_code}' "$db/settings.json?shallow=true")
             if [ "$rel" = "200" ]; then
               echo "::notice title=Rules check::the latest database rules are published"
             else
