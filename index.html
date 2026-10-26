@@ -45,15 +45,13 @@ body.ingame #pauseBtn{display:block}
 #pauseMenu button.secondary{background:#0a0a2a}
 #pauseMenu .note{font-size:12px;color:#bbb}
 #msg small{display:block;margin-top:10px;font-size:13px;color:#fff;font-weight:normal}
-#ctrl{display:none;flex:1;width:100%;min-height:210px;align-items:center;justify-content:center;touch-action:none}
-#joy{position:relative;width:min(50vw,190px);aspect-ratio:1;border-radius:50%;border:3px solid #2a3cff;background:radial-gradient(circle,#0a0a2a 55%,#13145a);pointer-events:none}
-#joy .arrow{position:absolute;color:#2a3cff;font-size:20px;line-height:1;transition:color .15s}
-#joy .arrow.on{color:#ffdd00}
-#joy .u{top:10px;left:50%;transform:translateX(-50%)}#joy .d{bottom:10px;left:50%;transform:translateX(-50%)}
-#joy .l{left:12px;top:50%;transform:translateY(-50%)}#joy .r{right:12px;top:50%;transform:translateY(-50%)}
-#knob{position:absolute;left:50%;top:50%;width:42%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 35% 35%,#6b7bff,#2a3cff);box-shadow:0 0 16px #2a3cff;transition:transform .12s}
-#ctrl.active #knob{transition:none}
-@media (pointer:coarse){body{justify-content:flex-start}#ctrl{display:flex}}
+#joy{display:none;position:relative;width:136px;height:136px;margin:10px 0;border-radius:50%;border:2px solid #2a3cff;background:radial-gradient(circle,#0a0a2a 55%,#13145a);touch-action:none}
+#joy .hint{position:absolute;color:#2a3cff;font-size:14px;line-height:1;pointer-events:none}
+#joy .u{top:8px;left:50%;transform:translateX(-50%)}#joy .d{bottom:8px;left:50%;transform:translateX(-50%)}
+#joy .l{left:9px;top:50%;transform:translateY(-50%)}#joy .r{right:9px;top:50%;transform:translateY(-50%)}
+#knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6b7bff,#2a3cff);box-shadow:0 0 14px #2a3cff;transition:transform .12s;pointer-events:none}
+#joy.active #knob{transition:none}
+@media (pointer:coarse){#joy{display:block}}
 #panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.82);direction:rtl;overflow-y:auto;padding:12px;box-sizing:border-box;font-family:system-ui,sans-serif}
 #panel[hidden]{display:none}
 #panel h1{margin:0;color:#ffdd00;font-size:34px;letter-spacing:2px}
@@ -127,7 +125,7 @@ body.ingame #pauseBtn{display:block}
 <body>
 <div id="hud"><span>SCORE <b id="score">0</b></span><span>HI <b id="hi">0</b></span><span id="timer"></span><span id="hudR"><span id="lives"></span><button id="pauseBtn" title="עצור">⋮</button></span></div>
 <div id="stage"><canvas id="c"></canvas><div id="msg"></div><div id="panel" hidden></div><div id="pauseMenu" hidden><h2>⏸ המשחק עצור</h2><button id="resumeBtn">▶ המשך</button><button id="quitBtn" class="secondary">🚪 יציאה ללובי</button><div class="note">יציאה מבטלת את הניסיון והניקוד לא נשמר</div></div></div>
-<div id="ctrl"><div id="joy"><span class="arrow u">▲</span><span class="arrow d">▼</span><span class="arrow l">◀</span><span class="arrow r">▶</span><div id="knob"></div></div></div>
+<div id="joy"><span class="hint u">▲</span><span class="hint d">▼</span><span class="hint l">◀</span><span class="hint r">▶</span><div id="knob"></div></div>
 <script>
 (() => {
 'use strict';
@@ -688,7 +686,6 @@ function setState(s) {
   const panel = s === 'title' || s === 'over' || s === 'cleared';
   $('panel').hidden = !panel;
   if (panel) showPanel(s);
-  if (s === 'ready') showSwipe(null);
   updateHud();
 }
 function roundTitle() {
@@ -1232,9 +1229,7 @@ function buildWalls(dpr) {
   g.beginPath(); g.moveTo(9 * cell, 8.5 * cell); g.lineTo(10 * cell, 8.5 * cell); g.stroke();
 }
 function fit() {
-  // on touch screens the area under the map holds the joystick and needs at least 210px
-  const ctrlH = getComputedStyle($('ctrl')).display === 'none' ? 0 : 210;
-  const aw = innerWidth, ah = innerHeight - $('hud').offsetHeight - ctrlH - 24;
+  const aw = innerWidth, ah = innerHeight - $('hud').offsetHeight - $('joy').offsetHeight - 32;
   cell = Math.max(8, Math.floor(Math.min(aw / W, ah / H)));
   const dpr = window.devicePixelRatio || 1;
   cv.style.width = W * cell + 'px'; cv.style.height = H * cell + 'px';
@@ -1322,43 +1317,32 @@ addEventListener('keydown', e => {
   else if (e.code === 'Enter' || e.code === 'Space') startIfNeeded();
 });
 // Two ways to steer, and both remember the turn until Pac-Man can take it:
-// the joystick (the whole area under the map responds to the finger) and swipes on the map.
-const SWIPE_MIN = 16;
-let swipeId = null, sx = 0, sy = 0, swipeDir = null;
-function showSwipe(d) {
-  const key = d === U ? 'u' : d === D ? 'd' : d === L ? 'l' : d === R ? 'r' : '';
-  document.querySelectorAll('#joy .arrow').forEach(a => a.classList.toggle('on', !!key && a.classList.contains(key)));
-}
-const ctrl = $('ctrl'), joy = $('joy'), knob = $('knob');
+// the joystick under the map and swipes on the map.
+const joy = $('joy'), knob = $('knob');
 let joyId = null, joyDir = null;
 function joyMove(e) {
-  const r = joy.getBoundingClientRect(), max = r.width / 2 - 10;
-  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-  const len = Math.hypot(dx, dy), k = len > max ? max / len : 1;
-  knob.style.transform = `translate(calc(-50% + ${dx * k}px), calc(-50% + ${dy * k}px))`;
-  if (len < max * 0.25) return;
-  // A diagonal push while moving counts as the turn, which is what the player is reaching for.
-  const ax = Math.abs(dx), ay = Math.abs(dy), moving = pac && pac.dir;
-  let vertical = ay > ax;
-  if (moving && moving.x !== 0 && ay > ax * 0.7) vertical = true;
-  else if (moving && moving.y !== 0 && ax > ay * 0.7) vertical = false;
-  const d = vertical ? (dy > 0 ? D : U) : (dx > 0 ? R : L);
-  if (d === joyDir) return;
-  joyDir = d; setWant(d); showSwipe(d);
-  try { navigator.vibrate && navigator.vibrate(8); } catch (err) {}
+  const r = joy.getBoundingClientRect(), max = r.width / 2 - 22;
+  let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > max) { dx *= max / len; dy *= max / len; }
+  knob.style.transform = `translate(${dx}px,${dy}px)`;
+  if (len < max * 0.35) return;
+  const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? R : L) : (dy > 0 ? D : U);
+  if (d !== joyDir) { joyDir = d; setWant(d); try { navigator.vibrate && navigator.vibrate(8); } catch (err) {} }
 }
-ctrl.addEventListener('pointerdown', e => {
-  if (joyId !== null) return;
+joy.addEventListener('pointerdown', e => {
   e.preventDefault(); e.stopPropagation();
-  joyId = e.pointerId; ctrl.setPointerCapture(e.pointerId); ctrl.classList.add('active'); joyDir = null; joyMove(e);
+  joyId = e.pointerId; joy.setPointerCapture(e.pointerId); joy.classList.add('active'); joyMove(e);
 });
-ctrl.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyMove(e); });
+joy.addEventListener('pointermove', e => { if (e.pointerId === joyId) joyMove(e); });
 const joyEnd = e => {
   if (e.pointerId !== joyId) return;
-  joyId = null; joyDir = null; ctrl.classList.remove('active'); knob.style.transform = '';
+  joyId = null; joyDir = null; joy.classList.remove('active'); knob.style.transform = '';
 };
-ctrl.addEventListener('pointerup', joyEnd);
-ctrl.addEventListener('pointercancel', joyEnd);
+joy.addEventListener('pointerup', joyEnd);
+joy.addEventListener('pointercancel', joyEnd);
+const SWIPE_MIN = 16;
+let swipeId = null, sx = 0, sy = 0, swipeDir = null;
 addEventListener('pointerdown', e => {
   if (swipeId !== null) return;
   swipeId = e.pointerId; sx = e.clientX; sy = e.clientY; swipeDir = null;
@@ -1370,7 +1354,7 @@ addEventListener('pointermove', e => {
   const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? R : L) : (dy > 0 ? D : U);
   sx = e.clientX; sy = e.clientY;
   if (d === swipeDir) return;
-  swipeDir = d; setWant(d); showSwipe(d);
+  swipeDir = d; setWant(d);
   try { navigator.vibrate && navigator.vibrate(8); } catch (err) {}
 });
 const swipeEnd = e => { if (e.pointerId === swipeId) swipeId = null; };
