@@ -45,6 +45,30 @@
         "score": { ".validate": true },
         "$other": { ".validate": false }
       }
+    },
+    "settings": {
+      ".read": true,
+      "dailyMinutes": {
+        ".write": "auth != null && auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2'",
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1440"
+      }
+    },
+    "playtime": {
+      ".read": "auth != null && auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2' || (auth.uid === $uid && newData.exists() && (!data.exists() || newData.child('day').val() > data.child('day').val() || (newData.child('day').val() === data.child('day').val() && newData.child('s').val() >= data.child('s').val()))))",
+        ".validate": "newData.hasChildren(['day', 's']) && newData.child('day').isNumber() && newData.child('s').isNumber() && newData.child('s').val() >= 0 && newData.child('s').val() <= 86400",
+        "day": { ".validate": true },
+        "s": { ".validate": true },
+        "$other": { ".validate": false }
+      }
+    },
+    "clock": {
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2')",
+        ".validate": "newData.val() === now"
+      }
     }
   }
 }
