@@ -10,7 +10,7 @@
         },
         "progress": {
           ".write": "auth != null && (auth.uid === $uid || auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2')",
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10"
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 15"
         },
         "secured": {
           ".write": "auth != null && auth.uid === $uid",
@@ -29,7 +29,7 @@
       ".read": true,
       "$key": {
         ".write": "auth != null && (auth.uid === 'DDyGDGEC8iVygEgaUl2MoHemWnH2' || (!newData.exists() && root.child('names').child($key).val() === auth.uid))",
-        ".validate": "newData.hasChildren(['score', 'progress']) && newData.child('score').isNumber() && newData.child('progress').isNumber() && newData.child('progress').val() >= 0 && newData.child('progress').val() <= 10",
+        ".validate": "newData.hasChildren(['score', 'progress']) && newData.child('score').isNumber() && newData.child('progress').isNumber() && newData.child('progress').val() >= 0 && newData.child('progress').val() <= 15",
         "score": { ".validate": true },
         "progress": { ".validate": true },
         "$other": { ".validate": false }
