@@ -712,7 +712,7 @@ function newGame(i) {
   if (LB_ON && !playerName) return;
   if (outOfTime()) { setState('title'); return; }
   score = 0; lives = 3; timedOut = false;
-  countTime = LB_ON && !isAdmin(); warned = Infinity;
+  warned = Infinity;
   loadLevel(i); newLevel(); updateHud();
 }
 function startIfNeeded() {
@@ -731,7 +731,6 @@ function setPaused(on) {
 function update(dt) {
   if (paused) return;
   stateT += dt;
-  countPlaytime(dt);
   if (state === 'ready') {
     if (stateT >= ROUND_CARD + 3 * COUNT_STEP) { setState('play'); return; }
     const n = stateT < ROUND_CARD ? 0 : 1 + Math.floor((stateT - ROUND_CARD) / COUNT_STEP);  // 0: round card, then 3, 2, 1
@@ -989,8 +988,8 @@ async function adminDelete(row) {
 const el = (tag, props) => Object.assign(document.createElement(tag), props);
 
 // ---------- daily play time ----------
-// Every player gets dailyMinutes of game time a day (Israel time). Only time inside a game counts, paused
-// time doesn't, and the admin has no limit. The count is kept on the server (playtime/{uid}), so a
+// Every player gets dailyMinutes a day (Israel time). All the time the app is open counts (lobby, menus and
+// pause too), time in the background doesn't, and the admin has no limit. The count is kept on the server (playtime/{uid}), so a
 // reinstall or a second phone share it, and the day follows the server's clock, so changing the date
 // on the phone doesn't reset it.
 const DEFAULT_MINUTES = 60;
@@ -999,7 +998,7 @@ let dayLimit = cachedLimit !== null && cachedLimit !== '' ? +cachedLimit : DEFAU
 let skew = +safeGet('pac-skew') || 0;  // server clock minus this phone's clock
 let pt = {uid: '', day: 0, s: 0, p: 0};  // s: today's seconds the server has, p: seconds not sent yet
 try { Object.assign(pt, JSON.parse(safeGet('pac-time') || '{}')); } catch (e) {}
-let ptBusy = false, ptTick = 0, countTime = false;
+let ptBusy = false, ptTick = 0, ptCheck = 0, countTime = false;
 function today() {
   const d = new Date(Date.now() + skew);
   try {
@@ -1050,18 +1049,30 @@ async function flushPlaytime() {
   } catch (e) {
   } finally { ptBusy = false; savePt(); }
 }
-// Warnings at 5 minutes and 1 minute. When the time runs out in the middle of a game, the player
-// finishes that game without interruption; the next one is blocked.
+// The lobby shows the time left as it runs out. Warnings at 5 minutes and 1 minute during a game. When the
+// time runs out in the middle of a game, the player finishes that game without interruption; when it runs
+// out in the lobby or on a results screen, that screen locks right away.
 let warned = Infinity;  // the last warning shown in this game
-function countPlaytime(dt) {
-  if (!countTime || state === 'title' || state === 'over' || state === 'cleared') return;
-  pt.p += dt; ptTick += dt;
+function countPlaytime(sec) {
+  if ((ptCheck -= sec) <= 0) { ptCheck = 1; countTime = LB_ON && !!playerName && !isAdmin(); }
+  if (!countTime || document.hidden) return;
+  const before = dayLimit * 60 - pt.s - pt.p, left = before - sec;
+  pt.p += sec; ptTick += sec;
   if (ptTick >= 30) { ptTick = 0; flushPlaytime(); }
-  if (dayLimit <= 0 || state !== 'play' || stateT < 0.8) return;  // not over the round card, countdown or "צא!"
-  const left = dayLimit * 60 - pt.s - pt.p, w = [60, 300].find(x => left <= x);
+  if (dayLimit <= 0) return;
+  const p = $('panel');
+  if (!p.hidden) {
+    if (before > 0 && left <= 0) { if (p.querySelector('.play, .final')) showPanel(state); }
+    else if (left > 0 && Math.ceil(before / 60) !== Math.ceil(left / 60)) {
+      const line = p.querySelector('.daytime.left');
+      if (line) line.textContent = `⏳ נשאר לך היום: ${timeText(left)}`;
+    }
+  }
+  if (state !== 'play' || stateT < 0.8) return;  // not over the round card, countdown or "צא!"
+  const w = [60, 300].find(x => left <= x);
   if (left <= 0 || w === undefined || w >= warned) return;
   warned = w;
-  flashMsg(w === 60 ? '⏳ נשארה דקה אחת להיום' : `⏳ נשארו ${timeText(left)} משחק להיום`);
+  flashMsg(w === 60 ? '⏳ נשארה דקה אחת להיום' : `⏳ נשארו ${timeText(left)} להיום`);
 }
 function flashMsg(text) {
   const span = el('span', {className: 'warn', textContent: text});
@@ -1080,7 +1091,7 @@ let dayChecked = 0;
 function dayLine() {
   if (isAdmin()) return el('div', {className: 'daytime', textContent: '⏳ מנהל: בלי הגבלת זמן'});
   if (dayLimit <= 0) return el('div', {className: 'daytime', textContent: '⏳ בלי הגבלת זמן'});
-  if (!outOfTime()) return el('div', {className: 'daytime', textContent: `⏳ נשאר לך היום: ${timeText(secondsLeft())}`});
+  if (!outOfTime()) return el('div', {className: 'daytime left', textContent: `⏳ נשאר לך היום: ${timeText(secondsLeft())}`});
   if (loadSession(PLAYER) && Date.now() - dayChecked > 10000) {
     dayChecked = Date.now();
     session(PLAYER).then(pullPlaytime).then(() => { if (state === 'title' && !outOfTime()) showPanel('title'); }).catch(() => {});
@@ -1192,7 +1203,7 @@ function showHelp() {
       'כדור גדול הופך את הרוחות לכחולות, ואז אפשר לאכול אותן.<br>' +
       'מסיימים שלב, ונפתח השלב הבא בלובי. כל שלב קשה יותר ושווה יותר נקודות.<br>' +
       'שליטה: ג׳ויסטיק, החלקה על המסך או החצים במקלדת.' +
-      (dayLimit > 0 ? `<br>אפשר לשחק עד ${timeText(dayLimit * 60)} ביום.` : '')}),
+      (dayLimit > 0 ? `<br>אפשר להיות במשחק עד ${timeText(dayLimit * 60)} ביום (כשהמשחק ברקע זה לא נספר).` : '')}),
     el('button', {textContent: 'חזרה', onclick: () => showPanel(state)}));
 }
 function menu() {
@@ -1336,7 +1347,7 @@ function playerRow(r) {
   const used = el('span');
   const reset = el('button', {textContent: '↺ אפס', title: 'אפס את זמן המשחק של היום', onclick: () =>
     adminResetTime(r.id).then(() => { r.used = 0; showTime(); }).catch(e => alert('האיפוס נכשל: ' + e.message))});
-  const showTime = () => { used.textContent = `⏳ שיחק היום: ${Math.floor(r.used / 60)} דקות`; reset.disabled = !r.used; };
+  const showTime = () => { used.textContent = `⏳ היום במשחק: ${Math.floor(r.used / 60)} דקות`; reset.disabled = !r.used; };
   tm.append(used, reset);
   top.append(el('button', {className: 'pdel', textContent: '🗑', title: 'מחק שחקן', onclick: () => {
     if (!confirm(`למחוק את ${r.name} לגמרי?\nהשם, הניקוד והשלבים יימחקו.`)) return;
@@ -1512,7 +1523,9 @@ addEventListener('orientationchange', fit);
 // ---------- main loop ----------
 let last = 0;
 function frame(ts) {
-  const t = ts / 1000, dt = Math.min(0.05, t - last || 0); last = t;
+  const t = ts / 1000, dt = Math.min(0.05, t - last || 0);
+  countPlaytime(Math.min(1, t - last || 0));  // real time, but a long gap means the app was in the background
+  last = t;
   update(dt); draw(t);
   requestAnimationFrame(frame);
 }
